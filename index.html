@@ -397,7 +397,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.7';
+var APP_VERSION = 'v1.4.8';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -1010,7 +1010,7 @@ function migrasiTimelineHtml(r){
     ln=ln.trim(); if(!ln) return;
     var m=ln.match(re);
     items.push('<div class="tl-item"><div class="tl-head"><span class="chip-stage cat">Migrasi</span>'
-      +(m?esc(fmtDate(m[1]))+' &middot; ':'')+'Migrasi</div>'
+      +(m?esc(m[1])+' &middot; ':'')+'Migrasi</div>'
       +'<div class="tl-notes">'+linkify(m?(m[2]||'') : ln)+'</div></div>');
   });
   if(r.closing_note){
