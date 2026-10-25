@@ -235,6 +235,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
           <button class="btn sec small" id="btnLapFilter" type="button">Cari</button>
           <button class="btn sec small" id="btnLapReset" type="button">Reset</button>
         </div>
+        <div id="listNote" class="hide" style="margin:8px 0;padding:8px 10px;border:1px dashed #f87171;border-radius:10px;color:#fca5a5;font-size:13px"></div>
         <div class="scroll-x maxh desktop-table desk-only" id="lapTblWrap"><table class="tbl" id="lapTbl"></table></div>
         <div class="mobile-list mob-only" id="lapList"></div>
       </div>
@@ -396,7 +397,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.4';
+var APP_VERSION = 'v1.4.5';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -543,7 +544,8 @@ async function enterApp(){
   $('aboutMe').textContent=(S.me? S.me.nama+' ('+S.me.role+')':'-');
   $('tabAdmin').classList.toggle('hide', !(S.me&&S.me.role==='ADMIN'));
   show('aboutVer'); $('aboutVer').textContent=APP_VERSION;
-  await refreshBootstrap();
+  try{ await refreshBootstrap(); }
+  catch(eBoot){ toast('Gagal memuat master def: '+(eBoot.message||'koneksi')+'. Buka ulang saat koneksi pulih.','err'); }
   loadDraft();
   renderQueueBar(); flushQueue();
   if(S.me&&S.me.mustChange){
@@ -563,8 +565,18 @@ function logout(){
 }
 
 /* ============ bootstrap ============ */
+var REF_CACHE_KEY='rpc_ref_cache';
 async function refreshBootstrap(){
-  REF=await apiCall('bootstrap');
+  try{
+    REF=await apiCall('bootstrap');
+    try{ localStorage.setItem(REF_CACHE_KEY, JSON.stringify(REF)); }catch(e){}
+  }catch(eBoot){
+    // koneksi lemah: pakai master data tersimpan terakhir (JANGAN logout hanya karena jaringan)
+    var c=null; try{ c=JSON.parse(localStorage.getItem(REF_CACHE_KEY)||'null'); }catch(_e){}
+    if(!(c&&c.materials&&c.materials.length)) throw eBoot;
+    REF=c;
+    toast('Koneksi lemah - memakai data master tersimpan di perangkat.','err');
+  }
   // dropdown material
   var fm=$('fMat'); fm.innerHTML='';
   var groups={};
@@ -766,10 +778,35 @@ async function refreshList(){
   var my=++LIST_SEQ;
   LF={ date_from:$('lfFrom').value, date_to:$('lfTo').value,
        status:$('lfStatus').value, category:$('lfCat').value, q:$('lfQ').value.trim() };
-  var fresh=await apiCall('list',LF);
-  if(my!==LIST_SEQ) return; // respons basi dari filter lama - buang
-  S.list=fresh;
+  try{
+    var fresh=await apiCall('list',LF);
+    if(my!==LIST_SEQ) return; // respons basi dari filter lama - buang
+    S.list=fresh; S.listErr='';
+    try{ localStorage.setItem(LIST_CACHE_KEY, JSON.stringify({ts:Date.now(),rows:fresh})); }catch(e){}
+    renderLaporan();
+  }catch(e){
+    if(my!==LIST_SEQ) return;
+    var c=null; try{ c=JSON.parse(localStorage.getItem(LIST_CACHE_KEY)||'null'); }catch(_e){}
+    if(c&&Array.isArray(c.rows)&&c.rows.length){
+      S.list=c.rows;
+      S.listErr='Data tersimpan di perangkat ('+fmtListTs(c.ts)+') - server belum merespons.';
+      toast('Gagal memuat daftar: '+(e.message||'koneksi gagal')+' - menampilkan data terakhir.','err');
+    }else{
+      S.list=[];
+      S.listErr=(e.message||'Gagal memuat data.')+' Ketuk "Coba Lagi".';
+      toast('Gagal memuat daftar: '+(e.message||'koneksi gagal'),'err');
+    }
+    renderLaporan();
+  }
+}
+var LIST_CACHE_KEY='rpc_list_cache';
+function fmtListTs(ts){
+  var d=new Date(ts||0); return isNaN(d.getTime())?'-':fmtDate(d.toISOString());
+}
+function retryList(){
+  S.listErr='';
   renderLaporan();
+  refreshList().catch(function(e){ toast(e.message,'err'); });
 }
 $('btnLapFilter').addEventListener('click',function(){ refreshList().catch(function(e){ toast(e.message,'err'); }); });
 $('btnLapReset').addEventListener('click',function(){
@@ -806,7 +843,19 @@ function rowsTableHtml(rows){
   return h+'</tbody>';
 }
 function renderLaporan(){
-  var rows=S.list;
+  var rows=S.list||[];
+  var note=$('listNote');
+  if(note){ note.textContent=S.listErr||''; note.classList.toggle('hide',!S.listErr); }
+  if(S.listErr&&!rows.length){
+    $('lapTbl').innerHTML='<tbody><tr><td style="color:#fca5a5">'+esc(S.listErr)
+      +'&nbsp;<button class="btn sec small" id="btnRetryList" type="button">Coba Lagi</button></td></tr></tbody>';
+    $('lapList').innerHTML='<div class="hint" style="color:#fca5a5">'+esc(S.listErr)
+      +'<div style="margin-top:8px"><button class="btn sec small" id="btnRetryListM" type="button">Coba Lagi</button></div></div>';
+    var b1=$('btnRetryList'), b2=$('btnRetryListM');
+    if(b1) b1.addEventListener('click',retryList);
+    if(b2) b2.addEventListener('click',retryList);
+    return;
+  }
   $('lapTbl').innerHTML=rows.length?rowsTableHtml(rows):'<tbody><tr><td>Belum ada data.</td></tr></tbody>';
   $('lapList').innerHTML=rowsMobileHtml(rows);
   bindRowClick($('lapTbl')); bindRowClick($('lapList'));
