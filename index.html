@@ -397,7 +397,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.6';
+var APP_VERSION = 'v1.4.7';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -622,7 +622,7 @@ function switchTab(name){
     // pastikan data terbaru sebelum digambar ulang (list mungkin belum termuat)
     refreshList().then(renderDash).catch(function(e){ toast(e.message,'err'); });
   }
-  if(name==='lapor') refreshList();
+  if(name==='lapor') refreshList().catch(function(e){ toast(e.message,'err'); });
   if(name==='admin') initAdmin();
 }
 document.querySelectorAll('#tabsBar button').forEach(function(b){
@@ -972,7 +972,7 @@ async function loadTimeline(id, r){
     if(wrap&&(!$('fotoWrap')||$('fotoWrap')!==wrap)) return; // detail sudah diganti/ditutup
     if(!rows.length){
       box.innerHTML=(r&&r.action_taken)
-        ?'<small style="color:#94a3b8">Riwayat tahapan belum tersedia untuk data migrasi &mdash; catatan penanganan lama ada di kolom Tindakan.</small>'
+        ?migrasiTimelineHtml(r)
         :'<small style="color:#94a3b8">Belum ada tahapan tercatat.</small>';
       updateFotoLabel();
       return;
@@ -998,6 +998,28 @@ async function loadTimeline(id, r){
   }catch(e){
     if($('tlBox')) $('tlBox').innerHTML='<small style="color:#f87171">Gagal memuat tahapan: '+esc(e.message)+'</small>';
   }
+}
+/* timeline rekonstruksi utk data migrasi: kolom "Tindakan" diparse baris "YYYY-MM-DD: teks" */
+function migrasiTimelineHtml(r){
+  var items=[];
+  var re=/^(20\d{2}-\d{2}-\d{2})\s*:\s*(.*)$/;
+  items.push('<div class="tl-item"><div class="tl-head"><span class="chip-stage">Diterima</span>'
+    +esc(fmtDate(r.timestamp))+' &middot; '+esc(r.reported_by||'Migrasi')+'</div>'
+    +'<div class="tl-notes">Laporan masuk (data migrasi).</div></div>');
+  String(r.action_taken||'').split(/\n+/).forEach(function(ln){
+    ln=ln.trim(); if(!ln) return;
+    var m=ln.match(re);
+    items.push('<div class="tl-item"><div class="tl-head"><span class="chip-stage cat">Migrasi</span>'
+      +(m?esc(fmtDate(m[1]))+' &middot; ':'')+'Migrasi</div>'
+      +'<div class="tl-notes">'+linkify(m?(m[2]||'') : ln)+'</div></div>');
+  });
+  if(r.closing_note){
+    items.push('<div class="tl-item"><div class="tl-head"><span class="chip-stage">Penutupan</span>'
+      +(r.closed_at?esc(fmtDate(r.closed_at))+' &middot; ':'')+'Migrasi</div>'
+      +'<div class="tl-notes">'+linkify(r.closing_note)+'</div></div>');
+  }
+  items.push('<small style="color:#94a3b8">Direkonstruksi dari data migrasi (kolom Tindakan).</small>');
+  return items.join('');
 }
 var STAGES_MANUAL=[
   ['PENGECEKAN','Pengecekan / konfirmasi kondisi'],
