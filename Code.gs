@@ -38,6 +38,7 @@ var SHEET_NAMES = {
   TYPES: 'Master Problem Type',
   SUPPLIERS: 'Master Supplier',
   USERS: 'Master User',
+  SESSIONS: 'Session Store',
   AUDIT: 'AuditLog',
   SETTINGS: 'Settings'
 };
@@ -110,8 +111,9 @@ var SUPPLIER_SEED = [
   ['Sherwin-Williams(Nantong) CO., Ltd', 'active']
 ];
 
-var USERS_HEADERS = ['Username', 'Password_Hash', 'Nama', 'Role', 'Aktif'];
+var USERS_HEADERS = ['Username', 'Password_Hash', 'Nama', 'Role', 'Aktif', 'Must_Change_Password'];
 var AUDIT_HEADERS = ['Timestamp', 'User', 'Aksi', 'Ref_ID', 'Detail'];
+var SESSION_HEADERS = ['Token_Hash', 'Username', 'Nama', 'Role', 'Created_At', 'Expires_At'];
 var SETTINGS_DEFAULTS = [
   ['key', 'value'],
   ['telegram_bot_token', ''],
@@ -124,15 +126,51 @@ var MAX_PHOTO_BYTES = 2000000; // ~2 MB hasil decode base64
 
 // ===================== AUTH CORE =====================
 
-function hashPassword_(password) {
+function hashHex_(s) {
   var bytes = Utilities.computeDigest(
-    Utilities.DigestAlgorithm.SHA_256, String(password), Utilities.Charset.UTF_8);
+    Utilities.DigestAlgorithm.SHA_256, String(s), Utilities.Charset.UTF_8);
   var hex = '';
   for (var i = 0; i < bytes.length; i++) {
     var v = (bytes[i] + 256) % 256;
     hex += (v < 16 ? '0' : '') + v.toString(16);
   }
   return hex;
+}
+
+function hashPassword_(password) {
+  return hashHex_(String(password));
+}
+
+var PWD_ITERATIONS = 1000;
+
+function derivePassword_(password, salt) {
+  var h = hashHex_(salt + ':' + hashHex_(password) + ':' + salt);
+  for (var i = 0; i < PWD_ITERATIONS; i++) {
+    h = hashHex_(h + '.' + salt);
+  }
+  return 's1$' + h + '$' + salt;
+}
+
+function verifyStoredPassword_(stored, password) {
+  var s = String(stored || '');
+  if (s.indexOf('s1$') === 0) {
+    var parts = s.split('$');
+    if (parts.length !== 3) return false;
+    return derivePassword_(password, parts[2]) === s;
+  }
+  return hashHex_(password) === s;
+}
+
+function upgradeStoredPassword_(username, password) {
+  try {
+    var row = findUserRowIndex_(String(username).toLowerCase());
+    if (row === -1) return;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(SHEET_NAMES.USERS);
+    if (String(sheet.getRange(row, 2).getValue()).indexOf('s1$') === 0) return;
+    sheet.getRange(row, 2).setValue(derivePassword_(password, Utilities.getUuid().replace(/-/g, '')));
+    logAudit_(null, 'UPGRADE_HASH', '', String(username));
+  } catch (e) { /* upgrade bertahap, tidak pernah menghentikan login */ }
 }
 
 /** Baca semua akun dari sheet Master User. */
@@ -151,7 +189,8 @@ function readUsers_() {
       hash: String(r[1] || ''),
       nama: String(r[2] || ''),
       role: String(r[3] || '').toUpperCase().trim(),
-      aktif: r[4] === true || String(r[4]).toLowerCase() === 'true'
+      aktif: r[4] === true || String(r[4]).toLowerCase() === 'true',
+      mustChange: String(r[5] || '').toLowerCase() === 'true' || String(r[5] || '').toLowerCase() === 'y'
     });
   });
   return out;
@@ -192,22 +231,70 @@ function authenticate_(username, password) {
   for (var i = 0; i < users.length; i++) {
     if (users[i].username === uname) { user = users[i]; break; }
   }
-  var ok = !!user && user.aktif && user.hash === hashPassword_(password);
+  var ok = !!user && user.aktif && verifyStoredPassword_(user.hash, password);
   if (!ok) {
-    // Pesan generik + lockout untuk SEMUA kasus gagal (termasuk username
-    // tak dikenal) agar tidak jadi orakel enumerasi username.
     registerFailedAttempt_(uname);
     logAudit_(null, 'LOGIN_GAGAL', '', uname);
     throw new Error('AUTH: Username atau password salah.');
   }
   clearFailedAttempts_(uname);
-  return { username: user.username, nama: user.nama, role: user.role };
+  if (String(user.hash).indexOf('s1$') !== 0) {
+    upgradeStoredPassword_(user.username, password);
+  }
+  return {
+    username: user.username, nama: user.nama, role: user.role, mustChange: !!user.mustChange
+  };
 }
 
-// ---------- Session/token (CacheService) ----------
+// ---------- Session/token (CacheService L1 + tab Session Store L2) ----------
+// Cache bisa ter-evict kapan saja oleh quota Apps Script; sheet membuat sesi
+// bertahan sampai exp sungguhan. Token disimpan HANYA sebagai hash.
 var SESSION_TTL_SECONDS = 4 * 60 * 60; // 4 jam
 
 function sessionCacheKey_(token) { return 'rpc_sess_' + token; }
+
+function sessionRowOf_(tokenHash) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.SESSIONS);
+  if (!sheet) return null;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  var vals = sheet.getRange(2, 1, lastRow - 1, SESSION_HEADERS.length).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (String(vals[i][0]) === tokenHash) {
+      return {
+        row: i + 2,
+        username: String(vals[i][1]),
+        nama: String(vals[i][2]),
+        role: String(vals[i][3]),
+        exp: Number(vals[i][5])
+      };
+    }
+  }
+  return null;
+}
+
+function deleteSessionRow_(tokenHash) {
+  var found = sessionRowOf_(tokenHash);
+  if (!found) return;
+  try {
+    SpreadsheetApp.getActiveSpreadsheet()
+      .getSheetByName(SHEET_NAMES.SESSIONS).deleteRow(found.row);
+  } catch (e) { /* sheet mungkin tidak ada lagi */ }
+}
+
+function sweepSessions_() {
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.SESSIONS);
+    if (!sheet) return;
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+    var vals = sheet.getRange(2, 1, lastRow - 1, SESSION_HEADERS.length).getValues();
+    var now = Date.now();
+    for (var i = vals.length - 1; i >= 0; i--) {
+      if (Number(vals[i][5]) < now) sheet.deleteRow(i + 2);
+    }
+  } catch (e) { /* string */ }
+}
 
 function createSession_(user) {
   var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
@@ -215,9 +302,16 @@ function createSession_(user) {
     username: user.username,
     nama: user.nama,
     role: user.role,
+    mustChange: !!user.mustChange,
     exp: Date.now() + SESSION_TTL_SECONDS * 1000
   };
+  var hash = hashHex_(token);
   CacheService.getScriptCache().put(sessionCacheKey_(token), JSON.stringify(payload), SESSION_TTL_SECONDS);
+  try {
+    SpreadsheetApp.getActiveSpreadsheet()
+      .getSheetByName(SHEET_NAMES.SESSIONS)
+      .appendRow([hash, user.username, user.nama || user.username, user.role, new Date(), new Date(payload.exp)]);
+  } catch (e) { /* tab belum ada - cache tetap bekerja */ }
   return { token: token, expires_in: SESSION_TTL_SECONDS };
 }
 
@@ -227,7 +321,15 @@ function validateSession_(token) {
   }
   var raw = CacheService.getScriptCache().get(sessionCacheKey_(token));
   if (!raw) {
-    throw new Error('AUTH: Sesi telah berakhir. Silakan login kembali.');
+    var found = sessionRowOf_(hashHex_(token));
+    if (!found || !found.exp || found.exp < Date.now()) {
+      throw new Error('AUTH: Sesi telah berakhir. Silakan login kembali.');
+    }
+    raw = JSON.stringify({
+      username: found.username, role: found.role,
+      nama: found.username, exp: found.exp
+    });
+    CacheService.getScriptCache().put(sessionCacheKey_(token), raw, SESSION_TTL_SECONDS);
   }
   var sess;
   try {
@@ -240,11 +342,16 @@ function validateSession_(token) {
     CacheService.getScriptCache().remove(sessionCacheKey_(token));
     throw new Error('AUTH: Sesi telah berakhir. Silakan login kembali.');
   }
-  return { username: sess.username, nama: sess.nama, role: sess.role };
+  return {
+    username: sess.username, nama: sess.nama, role: sess.role,
+    mustChange: !!sess.mustChange
+  };
 }
 
 function destroySession_(token) {
-  if (token) CacheService.getScriptCache().remove(sessionCacheKey_(token));
+  if (!token) return;
+  CacheService.getScriptCache().remove(sessionCacheKey_(token));
+  deleteSessionRow_(hashHex_(token));
 }
 
 function requireAuth_(data) {
@@ -269,7 +376,7 @@ function refreshLiveUser_(user) {
   if (!fresh || !fresh.aktif) {
     throw new Error('AUTH: Akun sudah dinonaktifkan. Silakan login kembali.');
   }
-  return { username: fresh.username, nama: fresh.nama, role: fresh.role };
+  return { username: fresh.username, nama: fresh.nama, role: fresh.role, mustChange: !!fresh.mustChange };
 }
 
 function requireRole_(user, roles) {
@@ -319,6 +426,7 @@ function setupAll() {
   setupTypesSheet_(ss);
   setupSuppliersSheet_(ss);
   setupUsersSheet_(ss);
+  setupSessionsSheet_(ss);
   setupAuditSheet_(ss);
   setupSettingsSheet_(ss);
 
@@ -382,14 +490,28 @@ function setupUsersSheet_(ss) {
   if (!sheet) sheet = ss.insertSheet(SHEET_NAMES.USERS);
   if (sheet.getLastRow() === 0) {
     var seed = [
-      ['admin', hashPassword_('admin123'), 'Administrator', ROLES.ADMIN, true],
-      ['fauzi', hashPassword_('fauzi123'), 'Fauzi', ROLES.OPERATOR, true],
-      ['risman', hashPassword_('risman123'), 'Risman', ROLES.OPERATOR, true]
+      ['admin', derivePassword_('admin123', Utilities.getUuid().replace(/-/g, '')), 'Administrator', ROLES.ADMIN, true, 'true'],
+      ['fauzi', derivePassword_('fauzi123', Utilities.getUuid().replace(/-/g, '')), 'Fauzi', ROLES.OPERATOR, true, 'true'],
+      ['risman', derivePassword_('risman123', Utilities.getUuid().replace(/-/g, '')), 'Risman', ROLES.OPERATOR, true, 'true']
     ];
     sheet.getRange(1, 1, 1, USERS_HEADERS.length).setValues([USERS_HEADERS]);
     sheet.getRange(1, 1, 1, USERS_HEADERS.length).setFontWeight('bold');
     sheet.getRange(2, 1, seed.length, seed[0].length).setValues(seed);
-    Logger.log('Sheet "Master User" dibuat. AKUN DEFAULT: admin/admin123, fauzi/fauzi123, risman/risman123. SEGERA GANTI PASSWORD!');
+    Logger.log('Sheet "Master User" dibuat. AKUN DEFAULT: admin/admin123, fauzi/fauzi123, risman/risman123. SEGERA GANTI PASSWORD (wajib: flag aktif)!');
+  } else if (String(sheet.getRange(1, USERS_HEADERS.length).getValue()) !== 'Must_Change_Password') {
+    sheet.getRange(1, USERS_HEADERS.length).setValue('Must_Change_Password');
+    sheet.getRange(1, USERS_HEADERS.length).setFontWeight('bold');
+    Logger.log('Header Master User diupgrade: kolom Must_Change_Password.');
+  }
+  return sheet;
+}
+
+function setupSessionsSheet_(ss) {
+  var sheet = ss.getSheetByName(SHEET_NAMES.SESSIONS);
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAMES.SESSIONS);
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, SESSION_HEADERS.length).setValues([SESSION_HEADERS]);
+    sheet.getRange(1, 1, 1, SESSION_HEADERS.length).setFontWeight('bold');
   }
   return sheet;
 }
@@ -549,6 +671,9 @@ function doPost(e) {
 
     var isMutating = MUTATING_ACTIONS.indexOf(action) !== -1;
     if (isMutating && user) user = refreshLiveUser_(user);
+    if (user && user.mustChange && isMutating && action !== 'changePassword') {
+      return respondError_('GANTI_PASSWORD: ganti password dulu lewat tab Akun.');
+    }
     var requestId = data.requestId;
     if (isMutating) {
       var replay = getIdempotentResult_(action, requestId);
@@ -624,9 +749,11 @@ function doPost(e) {
 function loginAction_(data) {
   var me = authenticate_(data.username, data.password);
   logAudit_(me, 'LOGIN', '', me.role);
+  sweepSessions_();
   var session = createSession_(me);
   return {
     nama: me.nama, role: me.role, username: me.username,
+    must_change: me.mustChange,
     units: UNIT_SUGGESTIONS,
     token: session.token, expires_in: session.expires_in
   };
@@ -649,11 +776,24 @@ function changePassword_(data, me) {
     if (users[i].username === uname) { found = users[i]; found._row = i + 2; break; }
   }
   if (!found) throw new Error('AUTH: Akun tidak ditemukan.');
-  if (found.hash !== hashPassword_(data.old_password)) {
+  if (!verifyStoredPassword_(found.hash, data.old_password)) {
     throw new Error('Password lama salah.');
   }
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.USERS);
-  sheet.getRange(found._row, 2).setValue(hashPassword_(data.new_password));
+  sheet.getRange(found._row, 2).setValue(
+    derivePassword_(data.new_password, Utilities.getUuid().replace(/-/g, '')));
+  if (found.mustChange) sheet.getRange(found._row, 6).setValue('false');
+  try {
+    if (data.token && data.token !== undefined) {
+      var cache = CacheService.getScriptCache();
+      var raw = cache.get(sessionCacheKey_(data.token));
+      if (raw) {
+        var sess = JSON.parse(raw);
+        sess.mustChange = false;
+        cache.put(sessionCacheKey_(data.token), JSON.stringify(sess), SESSION_TTL_SECONDS);
+      }
+    }
+  } catch (e) { /* pembaruan sesi non-kritis */ }
   logAudit_(me, 'GANTI_PASSWORD', '', uname);
   return { ok: true };
 }
@@ -700,7 +840,7 @@ function createUser_(data, byUser) {
       throw new Error('Username "' + uname + '" sudah dipakai.');
     }
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.USERS);
-    sheet.appendRow([uname, hashPassword_(data.password), String(data.nama).trim(), roleUp, true]);
+    sheet.appendRow([uname, derivePassword_(data.password, Utilities.getUuid().replace(/-/g, '')), String(data.nama).trim(), roleUp, true, 'false']);
     logAudit_(byUser, 'USER_BUAT', '', uname + ' (' + roleUp + ')');
     return { username: uname, nama: String(data.nama).trim(), role: roleUp, aktif: true };
   } finally {
@@ -720,7 +860,9 @@ function resetPassword_(data, byUser) {
   lock.waitLock(10000);
   try {
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.USERS);
-    sheet.getRange(rowIndex, 2).setValue(hashPassword_(data.new_password));
+    sheet.getRange(rowIndex, 2).setValue(
+      derivePassword_(data.new_password, Utilities.getUuid().replace(/-/g, '')));
+    sheet.getRange(rowIndex, 6).setValue('true');
     clearFailedAttempts_(uname);
     logAudit_(byUser, 'USER_RESET_PASSWORD', '', uname);
     return { username: uname, ok: true };

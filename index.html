@@ -183,7 +183,8 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
 
 <!-- ================= APP ================= -->
 <div id="appScreen" class="hide">
-  <div class="offline-bar hide" id="offlineBar">Anda sedang offline - aksi tulis dinonaktifkan sampai koneksi kembali</div>
+  <div class="offline-bar hide" id="offlineBar">Anda offline - laporan tetap bisa dikirim &amp; masuk antrean, terkirim otomatis saat koneksi pulih</div>
+  <div class="update-bar hide" id="queueBar">Laporan dalam antrean offline: <b id="queueCount">0</b> &mdash; klik untuk mencoba kirim sekarang</div>
   <div class="update-bar hide" id="updateBar">Versi baru tersedia &mdash; klik di sini untuk muat ulang</div>
   <header class="top">
     <span class="dot" id="connDot"></span>
@@ -379,7 +380,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.2.0';
+var APP_VERSION = 'v1.3.0';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -465,7 +466,8 @@ function saveSession(data){
   try{
     localStorage.setItem(LS.SESS, JSON.stringify({
       token:data.token, exp:Date.now()+((Number(data.expires_in)||14400)*1000),
-      username:data.username, nama:data.nama, role:data.role
+      username:data.username, nama:data.nama, role:data.role,
+      mustChange:data.must_change===true||data.must_change==='true'
     }));
   }catch(e){}
 }
@@ -475,6 +477,7 @@ function loadSession(){
     var raw=localStorage.getItem(LS.SESS); if(!raw) return null;
     var sess=JSON.parse(raw);
     if(!sess||!sess.token||!sess.exp||sess.exp<=Date.now()){ clearSession(); return null; }
+    sess.mustChange=!!sess.mustChange;
     return sess;
   }catch(e){ clearSession(); return null; }
 }
@@ -509,7 +512,7 @@ $('loginForm').addEventListener('submit', async function(e){
     localStorage.setItem(LS.URL, $('inUrl').value.trim().replace(/\/$/,''));
     var data=await apiLogin(u,p);
     saveSession(data);
-    S.token=data.token; S.me={username:data.username,nama:data.nama,role:data.role};
+    S.token=data.token; S.me={username:data.username,nama:data.nama,role:data.role,mustChange:data.must_change===true||data.must_change==='true'};
     await enterApp();
   }catch(ex){
     err.textContent=ex.message||'Login gagal'; show('loginErr');
@@ -526,6 +529,12 @@ async function enterApp(){
   show('aboutVer'); $('aboutVer').textContent=APP_VERSION;
   await refreshBootstrap();
   loadDraft();
+  renderQueueBar(); flushQueue();
+  if(S.me&&S.me.mustChange){
+    switchTab('akun');
+    toast('Wajib ganti password dulu (tab Akun) sebelum bisa mengubah data.','err');
+    return;
+  }
   var st=null; try{ st=sessionStorage.getItem('rpc_tab'); sessionStorage.removeItem('rpc_tab'); }catch(e){}
   switchTab(st&&['lapor','input','dash','admin','akun'].indexOf(st)>-1?st:'lapor');
 }
@@ -672,25 +681,67 @@ $('btnSubmitProblem').addEventListener('click', async function(){
   var qty=$('fQty').value;
   if(qty==='' ){ qty=null; }
   b.disabled=true; b.textContent='Mengirim...';
+  var payload={
+    material_code:mat, problem_category:cat,
+    supplier:$('fSup').value, batch_number:$('fBatch').value.trim(),
+    arrival_date:$('fArrival').value, lokasi:$('fLoc').value.trim(),
+    quantity:qty, unit:$('fUnit').value.trim(),
+    description:$('fDesc').value.trim(),
+    photo_b64:$('fPhoto').dataset.b64||''
+  };
   try{
-    var out=await apiCall('createProblem',{
-      material_code:mat, problem_category:cat,
-      supplier:$('fSup').value, batch_number:$('fBatch').value.trim(),
-      arrival_date:$('fArrival').value, lokasi:$('fLoc').value.trim(),
-      quantity:qty, unit:$('fUnit').value.trim(),
-      description:$('fDesc').value.trim(),
-      photo_b64:$('fPhoto').dataset.b64||''
-    });
+    var out=await apiCall('createProblem',payload);
     toast('Laporan terkirim. ID: '+esc(out.problem_id||'-'),'ok');
-    // reset
-    $('fBatch').value=''; $('fArrival').value=''; $('fLoc').value='';
-    $('fQty').value=''; $('fUnit').value=''; $('fDesc').value='';
-    delete $('fPhoto').dataset.b64; $('fPhoto').value=''; hide('fPhotoPrev');
-    clearDraft();
+    resetFormProblem();
     await refreshBootstrap();
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){
+    if(String(e.message||'').indexOf('OFFLINE')===0){
+      var q=loadQueue();
+      q.push({ requestId:genRequestId(), payload:payload, ts:Date.now() });
+      storeQueue(q);
+      resetFormProblem(); clearDraft();
+      toast('Offline - laporan masuk antrean, terkirim otomatis saat koneksi pulih.','ok');
+      return;
+    }
+    toast(e.message,'err');
+  }
   finally{ b.disabled=false; b.textContent='Kirim Laporan'; }
 });
+
+function resetFormProblem(){
+  $('fBatch').value=''; $('fArrival').value=''; $('fLoc').value='';
+  $('fQty').value=''; $('fUnit').value=''; $('fDesc').value='';
+  delete $('fPhoto').dataset.b64; $('fPhoto').value=''; hide('fPhotoPrev');
+}
+
+/* ============ antrean offline (createProblem saja; idempotent via requestId) ============ */
+var QUEUE_KEY='rpc_queue', flushing=false;
+function loadQueue(){ try{ return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]'); }catch(e){ return []; } }
+function storeQueue(q){ try{ localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); }catch(e){} renderQueueBar(); }
+function renderQueueBar(){
+  var q=loadQueue();
+  $('queueCount').textContent=q.length;
+  q.length?show('queueBar'):hide('queueBar');
+}
+async function flushQueue(){
+  if(flushing||!navigator.onLine||!S.token) return;
+  flushing=true;
+  try{
+    var q=loadQueue();
+    while(q.length&&navigator.onLine){
+      var it=q[0];
+      await apiCall('createProblem', Object.assign({}, it.payload, { requestId: it.requestId }), it.requestId);
+      q.shift(); storeQueue(q);
+    }
+    if(loadQueue().length===0){
+      toast('Semua laporan antrean terkirim.','ok');
+      await refreshBootstrap();
+    }
+  }catch(e){
+    if(String(e.message||'').indexOf('OFFLINE')!==0) toast('Antrean: '+(e.message||'gagal'),'err');
+  }finally{ flushing=false; }
+}
+$('queueBar').addEventListener('click',function(){ flushQueue().catch(function(e){ toast(e.message,'err'); }); });
 
 /* ============ list laporan ============ */
 var LF={};
@@ -1145,8 +1196,8 @@ function updateOnline(){
   var on=navigator.onLine;
   $('connDot').classList.toggle('off',!on);
   $('offlineBar').classList.toggle('hide',on);
-  $('btnSubmitProblem').disabled=!on;
   $('btnLogin').disabled=!on;
+  if(on) flushQueue().catch(function(){});
 }
 window.addEventListener('online',updateOnline);
 window.addEventListener('offline',updateOnline);
@@ -1178,7 +1229,7 @@ updateOnline();
   }catch(e){}
   var sess=loadSession();
   if(sess){
-    S.token=sess.token; S.me={username:sess.username,nama:sess.nama,role:sess.role};
+    S.token=sess.token; S.me={username:sess.username,nama:sess.nama,role:sess.role,mustChange:!!sess.mustChange};
     enterApp().catch(function(e){
       // sesi mati di server -> kembali login
       logout();

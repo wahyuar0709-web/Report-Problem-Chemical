@@ -1,4 +1,4 @@
-# 🧪 PANDUAN DEPLOY — Report Problem Chemical v1.2.0
+# 🧪 PANDUAN DEPLOY — Report Problem Chemical v1.3.0
 
 Aplikasi pelaporan masalah material kimia gudang RDI (kemasan rusak, tumpah, kadaluarsa, salah kirim, dll).
 
@@ -37,7 +37,8 @@ Yang dibuat/dipastikan oleh setup (aman dijalankan berulang):
 | `Master Material` | 23 material dari file referensi (lem EVA/PVAc, UV coating, ink) |
 | `Master Problem Type` | 7 kategori default (bisa ditambah lewat Admin) |
 | `Master Supplier` | 2 supplier kimia dari data Flammable (Akzo Nobel, Sherwin-Williams) |
-| `Master User` | admin/admin123, fauzi/fauzi123, risman/risman123 |
+| `Master User` | admin/admin123, fauzi/fauzi123, risman/risman123 — **flag WAJIB ganti password aktif utk akun default**; lupa ganti = tak bisa ubah data |
+| `Session Store` | sesi aktif (token disimpan sebagai hash, bukan token mentah); baris kadaluarsa dibersihkan otomatis saat login |
 | `AuditLog` | jejak aksi |
 | `Settings` | placeholder telegram (opsional) |
 
@@ -100,13 +101,17 @@ Dashboard: total per status, tren 14 hari, per kategori, per material, unduh CSV
 | 5 | [Tutup] tanpa tindakan | ditolak; dengan tindakan → Selesai |
 | 6 | OPERATOR klik tab Admin | ditolak "Hanya ADMIN" |
 | 7 | Admin void laporan | status Void + alasan tercetak |
-| 8 | Matikan WiFi lalu buka tab Input | tombol kirim mati + banner offline; isi form dapat disave — saat online, draft dipulihkan |
+| 8 | Matikan WiFi lalu buka tab Input | form tetap aktif; kirim = masuk antrean, terkirim otomatis saat pulih |
+| 9 | Bagikan laporan saat off lalu nyalakan WiFi | antrean flush sendiri + toast "Semua laporan antrean terkirim" |
+| 10 | Reset password user oleh admin | user yang bersangkutan wajib ganti password saat login berikutnya |
 | 9 | Cek tab `AuditLog` | semua aksi terekam |
 
 ## ⚠️ CATATAN KEAMANAN
 
-- Password disimpan sebagai SHA-256 hash (bukan plain text)
-- Token sesi berumur 4 jam, dicabut lewat [Keluar]
+- Password disimpan salted & ter-iterasi (format `s1$hash$salt`, 1000 iterasi SHA-256); akun lama berformat hash polos di-upgrade otomatis saat login pertama setelah backend baru aktif
+- Token sesi berumur 4 jam, bertahan disk (tab `Session Store`) — tidak hilang oleh evictasi cache; token tersimpan sebagai SHA-256 hash
+- Akun default & hasil reset password oleh admin berbendera wajib-ganti-password sampai user menggantinya sendiri
+- Antrean offline tersimpan lokal di HP; kirim ulang aman karena idempotency `requestId`
 - Aksi tulis punya proteksi idempotency (retry tidak mencipta laporan kembar)
-- URL `/exec` bersifat internal — jangan disebar ke luar perusahaan
+- URL `/exec` hanya menerima POST (halaman GET hanya membawa info aplikasi)
 - Foto admin di-share anyone-with-link karena perlu bisa dibuka lintas user; simpan foto hanya bukti kerja

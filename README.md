@@ -25,8 +25,9 @@ Tab:
 - `Master Material` — 23 material kimia (rumpun Adhesive / UV Coating / Printing Ink)
 - `Master Problem Type` — 7 kategori masalah
 - `Master Supplier` — 2 supplier dari referensi
-- `Master Batch` — register batch Level lot (hasil migrasi data lama)
-- `Master User` — akun login (hash SHA-256)
+- `Master Batch` — register batch level lot (hasil migrasi data lama)
+- `Session Store` — sesi aktif (token disimpan SHA-256-hash; baris expired dibuang saat login)
+- `Master User` — akun login (hash salted+iterasi `s1$…`, kolom `Must_Change_Password`)
 - `AuditLog`, `Settings`
 
 ## Migrasi data lama (2026-10-25)
@@ -68,7 +69,14 @@ Dikompres di HP (maks 1280px, JPEG 0.72) → dikirim base64 → disimpan ke fold
 
 ## Akun awal
 
-`admin/admin123`, `fauzi/fauzi123`, `risman/risman123` — **WAJIB ganti password setelah deploy.**
+`admin/admin123`, `fauzi/fauzi123`, `risman/risman123` — **wajib ganti password (flag aktif);
+selama belum diganti, backend menolak semua aksi tulis.** Reset password oleh admin juga
+mengaktifkan flag untuk user bersangkutan.
+
+## Antrean offline
+
+Kirim laporan tanpa internet → payload tersimpan di localStorage HP (dengan `requestId`
+miliknya). Saat koneksi pulih, flush otomatis; kirim ulang aman karena idempotency backend.
 
 ## Tips maintenance
 
