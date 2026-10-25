@@ -397,7 +397,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.5';
+var APP_VERSION = 'v1.4.6';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -545,7 +545,10 @@ async function enterApp(){
   $('tabAdmin').classList.toggle('hide', !(S.me&&S.me.role==='ADMIN'));
   show('aboutVer'); $('aboutVer').textContent=APP_VERSION;
   try{ await refreshBootstrap(); }
-  catch(eBoot){ toast('Gagal memuat master def: '+(eBoot.message||'koneksi')+'. Buka ulang saat koneksi pulih.','err'); }
+  catch(eBoot){
+    toast('Gagal memuat master def: '+(eBoot.message||'koneksi')+'. Dicoba ulang otomatis 3 detik.','err');
+    setTimeout(function(){ refreshBootstrap().catch(function(){}); }, 3000);
+  }
   loadDraft();
   renderQueueBar(); flushQueue();
   if(S.me&&S.me.mustChange){
