@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Problem Kimia">
+<link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>Report Problem Chemical</title>
 <link rel="manifest" href="./manifest.json">
@@ -385,7 +386,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.0';
+var APP_VERSION = 'v1.4.1';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -876,7 +877,7 @@ async function loadTimeline(id, r){
     var rows=await apiCall('listActions',{problem_id:id});
     if(!$('tlBox')||$('tlBox')!==box) return;
     if(!rows.length){
-      box.innerHTML=(r&&r.action_taken&&r.status==='Selesai')
+      box.innerHTML=(r&&r.action_taken)
         ?'<small style="color:#94a3b8">Riwayat tahapan belum tersedia untuk data migrasi &mdash; catatan penanganan lama ada di kolom Tindakan.</small>'
         :'<small style="color:#94a3b8">Belum ada tahapan tercatat.</small>';
       return;
