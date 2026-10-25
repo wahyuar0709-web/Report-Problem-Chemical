@@ -27,6 +27,7 @@ Tab:
 - `Master Supplier` — 2 supplier dari referensi
 - `Master Batch` — register batch level lot (hasil migrasi data lama)
 - `Session Store` — sesi aktif (token disimpan SHA-256-hash; baris expired dibuang saat login)
+- `Problem Actions` — log tahapan per laporan (`Action_ID` PCA-…, tahapan DITERIMA→PENGECEKAN→TINDAK_LANJUT→DIKEMBALIKAN→SELESAI, bukti foto per tahap)
 - `Master User` — akun login (hash salted+iterasi `s1$…`, kolom `Must_Change_Password`)
 - `AuditLog`, `Settings`
 
@@ -61,6 +62,14 @@ Data manual **`Report Problem Chemical.xlsx`** (sheet `Report` + `List Material`
 ## Status alur
 
 `Baru` → `Diproses` → `Selesai` (ADMIN juga dapat: Edit saat Baru, Void dengan alasan)
+
+## Tahapan penanganan (v1.4)
+
+Setiap laporan punya log langkah-langkah penanganan di tab `Problem Actions`:
+`DITERIMA` (otomatis saat laporan dibuat) → `PENGECEKAN` → `TINDAK_LANJUT` →
+`DIKEMBALIKAN` → `SELESAI`. Pelaksana menambah tahapan dari detail laporan
+(tombol **Tahapan Baru**) lengkap dengan catatan dan bukti foto per tahap;
+memilih tahap `SELESAI` otomatis menutup laporan (status + `Closed_At`).
 
 ## Foto bukti
 

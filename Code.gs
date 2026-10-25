@@ -34,6 +34,7 @@
 
 var SHEET_NAMES = {
   REPORTS: 'Problem Report',
+  ACTIONS: 'Problem Actions',
   MATERIALS: 'Master Material',
   TYPES: 'Master Problem Type',
   SUPPLIERS: 'Master Supplier',
@@ -66,6 +67,24 @@ var REPORT_HEADERS = [
 ];
 
 var MATERIAL_HEADERS = ['Material_Code', 'Material_Name', 'Specification', 'Material_Group', 'Status'];
+
+// Tahapan penanganan laporan (dari terima sampai selesai, tiap tahap bisa bawa foto bukti).
+var ACTION_HEADERS = ['Action_ID', 'Problem_ID', 'Stage_Code', 'Stage_Notes', 'Photo_URL', 'Photo_URL_Extra', 'Action_By', 'Action_At'];
+
+var ACTION_STAGES = [
+  { code: 'DITERIMA', label: 'Diterima & dicatat', auto: true },
+  { code: 'PENGECEKAN', label: 'Pengecekan / konfirmasi kondisi' },
+  { code: 'TINDAK_LANJUT', label: 'Tindak lanjut penanganan' },
+  { code: 'DIKEMBALIKAN', label: 'Pengembalian / penggantian barang' },
+  { code: 'SELESAI', label: 'Selesai & diverifikasi' }
+];
+
+function stageLabel_(code) {
+  for (var i = 0; i < ACTION_STAGES.length; i++) {
+    if (ACTION_STAGES[i].code === String(code)) return ACTION_STAGES[i].label;
+  }
+  return String(code);
+}
 
 // Seed dari "List Material chemical Warehouse.xlsx" (Referensi - 23 material).
 // Material_Group: Rumpun berdasar nama material (Adhesive / UV Coating / Printing Ink).
@@ -389,6 +408,7 @@ function requireRole_(user, roles) {
 
 var MUTATING_ACTIONS = [
   'createProblem', 'startProcess', 'closeProblem', 'voidProblem', 'editProblem',
+  'addProblemAction',
   'addSupplier', 'setSupplierAktif', 'addProblemType', 'setProblemTypeAktif',
   'createUser', 'resetPassword', 'setUserAktif', 'changePassword'
 ];
@@ -422,6 +442,7 @@ function setupAll() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   setupReportsSheet_(ss);
+  setupActionsSheet_(ss);
   setupMaterialsSheet_(ss);
   setupTypesSheet_(ss);
   setupSuppliersSheet_(ss);
@@ -441,6 +462,20 @@ function setupReportsSheet_(ss) {
     sheet.getRange(1, 1, 1, REPORT_HEADERS.length).setValues([REPORT_HEADERS]);
     sheet.getRange(1, 1, 1, REPORT_HEADERS.length).setFontWeight('bold');
     Logger.log('Sheet "Problem Report" dibuat baru.');
+  }
+  return sheet;
+}
+
+function setupActionsSheet_(ss) {
+  var sheet = ss.getSheetByName(SHEET_NAMES.ACTIONS);
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAMES.ACTIONS);
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, ACTION_HEADERS.length).setValues([ACTION_HEADERS]);
+    sheet.getRange(1, 1, 1, ACTION_HEADERS.length).setFontWeight('bold');
+    Logger.log('Sheet "Problem Actions" dibuat.');
+  } else if (String(sheet.getRange(1, 1).getValue()) !== 'Action_ID') {
+    sheet.getRange(1, 1, 1, ACTION_HEADERS.length).setValues([ACTION_HEADERS]);
+    sheet.getRange(1, 1, 1, ACTION_HEADERS.length).setFontWeight('bold');
   }
   return sheet;
 }
@@ -691,6 +726,9 @@ function doPost(e) {
       // ---- baca ----
       case 'bootstrap': result = bootstrapData_(); break;
       case 'list': result = listProblems_(data.date_from, data.date_to, data.status, data.category, data.material, data.q); break;
+      case 'listActions':
+        result = listProblemActions_(data.problem_id);
+        break;
       case 'users':
         requireRole_(user, [ROLES.ADMIN]);
         result = readUserListPublic_();
@@ -716,6 +754,10 @@ function doPost(e) {
       case 'closeProblem':
         requireRole_(user, [ROLES.OPERATOR, ROLES.ADMIN]);
         result = closeProblem_(data, user);
+        break;
+      case 'addProblemAction':
+        requireRole_(user, [ROLES.OPERATOR, ROLES.ADMIN]);
+        result = addProblemAction_(data, user);
         break;
 
       // ---- ADMIN saja ----
@@ -994,6 +1036,34 @@ function generateProblemId(dateObj) {
   }
 }
 
+function generateActionId(dateObj) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var tz = Session.getScriptTimeZone();
+    var dateStr = Utilities.formatDate(dateObj || new Date(), tz, 'yyyyMMdd');
+    var prefix = 'PCA-' + dateStr + '-';
+
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.ACTIONS);
+    if (!sheet) return prefix + '001';
+    var lastRow = sheet.getLastRow();
+    var maxSeq = 0;
+    if (lastRow > 1) {
+      var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      ids.forEach(function (r) {
+        var id = typeof r[0] === 'string' ? r[0] : '';
+        if (id.indexOf(prefix) === 0) {
+          var seq = parseInt(id.substring(prefix.length), 10);
+          if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+        }
+      });
+    }
+    return prefix + ('000' + (maxSeq + 1)).slice(-3);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // ===================== VALIDASI MASTER =====================
 
 function findMaterial_(code) {
@@ -1003,6 +1073,132 @@ function findMaterial_(code) {
     if (all[i].code.toLowerCase() === needle) return all[i];
   }
   return null;
+}
+
+// ===================== TAHAPAN PENANGANAN (Problem Actions) =====================
+
+function getActionsSheet_() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.ACTIONS);
+}
+
+function appendActionRow_(problemId, stageCode, notes, photoUrl, byUser) {
+  var sheet = getActionsSheet_();
+  if (!sheet) {
+    try {
+      sheet = setupActionsSheet_(SpreadsheetApp.getActiveSpreadsheet());
+    } catch (eSetup) {
+      return null;
+    }
+  }
+  var now = new Date();
+  var fields = {};
+  fields['Action_ID'] = generateActionId(now);
+  fields['Problem_ID'] = String(problemId);
+  fields['Stage_Code'] = String(stageCode);
+  fields['Stage_Notes'] = String(notes || '').trim();
+  fields['Photo_URL'] = photoUrl || '';
+  fields['Photo_URL_Extra'] = '';
+  fields['Action_By'] = byUser && byUser.nama ? byUser.nama : '';
+  fields['Action_At'] = now;
+  sheet.appendRow(buildRow_(sheet, fields));
+  return {
+    action_id: fields['Action_ID'], problem_id: fields['Problem_ID'],
+    stage_code: fields['Stage_Code'], stage_label: stageLabel_(stageCode),
+    notes: fields['Stage_Notes'], photo_url: fields['Photo_URL'],
+    action_by: fields['Action_By'], action_at: now
+  };
+}
+
+function listProblemActions_(problemId) {
+  if (!problemId) throw new Error('problem_id wajib diisi.');
+  var sheet = getActionsSheet_();
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var map = getHeaderMap_(sheet);
+  var lastCol = sheet.getLastColumn();
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+  var out = [];
+  rows.forEach(function (r) {
+    var obj = rowToObj_(map, r);
+    if (String(obj['Problem_ID']) !== String(problemId)) return;
+    var extras = String(obj['Photo_URL_Extra'] || '').split(' | ').filter(function (u) { return u; });
+    out.push({
+      action_id: String(obj['Action_ID'] || ''),
+      problem_id: String(obj['Problem_ID'] || ''),
+      stage_code: String(obj['Stage_Code'] || ''),
+      stage_label: stageLabel_(obj['Stage_Code']),
+      notes: String(obj['Stage_Notes'] || ''),
+      photo_url: String(obj['Photo_URL'] || ''),
+      photo_url_extra: extras.join(' | '),
+      action_by: String(obj['Action_By'] || ''),
+      action_at: obj['Action_At']
+    });
+  });
+  out.sort(function (a, b) {
+    return new Date(a.action_at).getTime() - new Date(b.action_at).getTime();
+  });
+  return out;
+}
+
+function addProblemAction_(data, byUser) {
+  requireFields_(data, ['problem_id', 'stage_code']);
+  var stage = String(data.stage_code).trim().toUpperCase();
+  var valid = false;
+  for (var i = 0; i < ACTION_STAGES.length; i++) {
+    if (ACTION_STAGES[i].code === stage && !ACTION_STAGES[i].auto) valid = true;
+  }
+  if (!valid) {
+    throw new Error('TAHAPAN: Kode tahapan tidak dikenal / bukan tahapan manual: "' + stage + '".');
+  }
+
+  var sheet = getReportsSheet_();
+  var rowIndex = findRowIndexById_(sheet, data.problem_id);
+  if (rowIndex === -1) throw new Error('Problem_ID tidak ditemukan: ' + data.problem_id);
+  var map = getHeaderMap_(sheet);
+  var obj = rowToObj_(map, sheet.getRange(rowIndex, 1, 1, sheet.getLastColumn()).getValues()[0]);
+  var st = String(obj['Status'] || '');
+  if (st === STATUS.VOID) {
+    throw new Error('TRANSISI: Laporan berstatus Void - tidak bisa ditambah tahapan.');
+  }
+  if (st === STATUS.SELESAI) {
+    throw new Error('TRANSISI: Laporan sudah Selesai - tidak bisa ditambah tahapan baru.');
+  }
+
+  if (stage === 'SELESAI') {
+    updateProblem_(data.problem_id, [STATUS.BARU, STATUS.DIPROSES], function (o) {
+      var now = new Date();
+      o['Status'] = STATUS.SELESAI;
+      o['Closing_Note'] = String(data.notes || '').trim();
+      if (!o['Action_PIC']) o['Action_PIC'] = byUser.nama;
+      if (!o['Processed_At']) o['Processed_At'] = now;
+      o['Closed_At'] = now;
+      o._meta_audit = { by: byUser, aksi: 'TAHAPAN_SELESAI', detail: String(data.notes || '').trim() };
+    });
+  }
+
+  var photoUrl = '';
+  if (data.photo_b64) {
+    var tz = Session.getScriptTimeZone();
+    var stamp = Utilities.formatDate(new Date(), tz, 'yyyyMMdd-HHmmss');
+    photoUrl = savePhoto_(data.photo_b64, stamp + '_' + String(data.problem_id) + '_' + stage + '.jpg');
+  }
+
+  var out = appendActionRow_(data.problem_id, stage, data.notes, photoUrl, byUser);
+  logAudit_(byUser, 'TAHAPAN_BARU', data.problem_id, stage + (photoUrl ? ' (foto)' : ''));
+  return out;
+}
+
+function appendSelesaiRowIfMissing_(problemId, byUser, notes) {
+  try {
+    var sheet = getActionsSheet_();
+    var hasSelesai = false;
+    if (sheet && sheet.getLastRow() >= 2) {
+      var cols = sheet.getRange(2, 2, sheet.getLastRow() - 1, 2).getValues();
+      cols.forEach(function (r) {
+        if (String(r[0]) === String(problemId) && String(r[1]) === 'SELESAI') hasSelesai = true;
+      });
+    }
+    if (!hasSelesai) appendActionRow_(problemId, 'SELESAI', notes || 'Penutupan laporan', '', byUser);
+  } catch (e) { /* timeline best-effort - penutupan tidak boleh gagal karenanya */ }
 }
 
 function assertActiveType_(name) {
@@ -1171,6 +1367,9 @@ function createProblem_(data, byUser) {
 
     sheet.appendRow(buildRow_(sheet, fields));
     logAudit_(byUser, 'LAPOR_BARU', id, material.name + ' | ' + data.problem_category + (qty !== null ? ' | ' + qty + ' ' + (data.unit || '') : ''));
+    try {
+      appendActionRow_(id, 'DITERIMA', 'Laporan dibuat oleh ' + (byUser.nama || byUser.username), '', byUser);
+    } catch (eTahap) { /* timeline best-effort */ }
     return { problem_id: id, status: STATUS.BARU };
   } finally {
     lock.releaseLock();
@@ -1240,6 +1439,9 @@ function closeProblem_(data, byUser) {
     obj._meta_audit = { by: byUser, aksi: 'TUTUP', detail: obj['Action_Taken'] + ' | ' + (obj['Material_Code'] || '') };
     out = { problem_id: obj['Problem_ID'], status: obj['Status'] };
   });
+  try {
+    appendSelesaiRowIfMissing_(data.problem_id, byUser, null);
+  } catch (e) { /* timeline best-effort */ }
   return out;
 }
 

@@ -141,6 +141,11 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
 .modal .actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .modal .actions .btn{flex:1}
 .photo-th{width:100%;max-width:320px;border-radius:10px;border:1px solid var(--line);display:block;margin-top:4px}
+.tl{margin-top:6px;display:flex;flex-direction:column;gap:8px}
+.tl-item{border-left:2px solid var(--line);padding:2px 0 2px 10px}
+.tl-head{font-size:12px;color:var(--muted,#94a3b8);margin-bottom:3px}
+.chip-stage{display:inline-block;background:#1d2a44;border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:11px;color:#dbe7ff;margin-right:6px}
+.tl-notes{font-size:13px;white-space:pre-wrap;margin-bottom:4px}
 /* toast */
 .toast-wrap{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:99;display:flex;flex-direction:column;gap:8px;width:max-content;max-width:92vw}
 .toast{background:#24304d;border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
@@ -380,7 +385,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.3.0';
+var APP_VERSION = 'v1.4.0';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -842,23 +847,92 @@ function openDetail(id){
         return ap;
       }).join('');
   }
+  h+='<div style="margin-top:12px"><label>Tahapan Penanganan</label><div id="tlBox" class="tl"><small style="color:#94a3b8">memuat tahapan&hellip;</small></div></div>';
   h+='<div class="actions">'
     +(r.status==='Baru'?'<button class="btn" data-a="process" data-id="'+esc(r.problem_id)+'">Proses</button>':'')
+    +((r.status==='Baru'||r.status==='Diproses')?'<button class="btn" data-a="step" data-id="'+esc(r.problem_id)+'">Tahapan Baru</button>':'')
     +((r.status==='Baru'||r.status==='Diproses')?'<button class="btn ok" data-a="close" data-id="'+esc(r.problem_id)+'">Tutup</button>':'')
     +(isAdm()&&r.status==='Baru'?'<button class="btn sec" data-a="edit" data-id="'+esc(r.problem_id)+'">Edit</button>':'')
     +(isAdm()&&(r.status==='Baru'||r.status==='Diproses')?'<button class="btn dan" data-a="void" data-id="'+esc(r.problem_id)+'">Void</button>':'')
     +'<button class="btn sec" data-a="x">Tutup</button>'
     +'</div>';
   openModal(h);
+  loadTimeline(r.problem_id, r);
   $('modalBox').querySelectorAll('[data-a]').forEach(function(btn){
     btn.addEventListener('click',function(){
       var a=btn.dataset.a;
       if(a==='x'){ closeModal(); return; }
       if(a==='process'){ doProcess(btn.dataset.id); }
+      if(a==='step'){ askStep(btn.dataset.id); }
       if(a==='close'){ askClose(btn.dataset.id); }
       if(a==='void'){ askVoid(btn.dataset.id); }
       if(a==='edit'){ askEdit(btn.dataset.id); }
     });
+  });
+}
+async function loadTimeline(id, r){
+  var box=$('tlBox'); if(!box) return;
+  try{
+    var rows=await apiCall('listActions',{problem_id:id});
+    if(!$('tlBox')||$('tlBox')!==box) return;
+    if(!rows.length){
+      box.innerHTML=(r&&r.action_taken&&r.status==='Selesai')
+        ?'<small style="color:#94a3b8">Riwayat tahapan belum tersedia untuk data migrasi &mdash; catatan penanganan lama ada di kolom Tindakan.</small>'
+        :'<small style="color:#94a3b8">Belum ada tahapan tercatat.</small>';
+      return;
+    }
+    box.innerHTML=rows.map(function(t){
+      var fase=t.photo_url?[esc(t.photo_url)]:[];
+      (t.photo_url_extra||'').split(' | ').forEach(function(u){ u=u.trim(); if(u) fase.push(esc(u)); });
+      return '<div class="tl-item">'
+        +'<div class="tl-head"><span class="chip-stage">'+esc(t.stage_label||t.stage_code)+'</span>'
+        +esc(fmtDate(t.action_at))+' &middot; '+esc(t.action_by||'-')+'</div>'
+        +(t.notes?'<div class="tl-notes">'+linkify(t.notes)+'</div>':'')
+        +fase.map(function(u){ return '<a href="'+u+'" target="_blank" rel="noopener" style="display:inline-block"><img class="photo-th" src="'+u+'" alt="foto tahapan"></a>'; }).join('')
+        +'</div>';
+    }).join('');
+  }catch(e){
+    if($('tlBox')) $('tlBox').innerHTML='<small style="color:#f87171">Gagal memuat tahapan: '+esc(e.message)+'</small>';
+  }
+}
+var STAGES_MANUAL=[
+  ['PENGECEKAN','Pengecekan / konfirmasi kondisi'],
+  ['TINDAK_LANJUT','Tindak lanjut penanganan'],
+  ['DIKEMBALIKAN','Pengembalian / penggantian barang'],
+  ['SELESAI','Selesai &amp; diverifikasi']
+];
+function askStep(id){
+  var opts=STAGES_MANUAL.map(function(s){ return '<option value="'+s[0]+'">'+s[1]+'</option>'; }).join('');
+  var h='<h3>Tahapan Penanganan</h3>'
+    +'<p class="hint">Catat langkah penanganan + bukti foto. Pilih tahap "Selesai" untuk mengakhiri laporan langkah terakhir.</p>'
+    +'<label>Tahapan <span class="err">*</span></label><select id="mStage">'+opts+'</select>'
+    +'<label>Catatan tahapan</label><textarea id="mNotes" rows="2" placeholder="mis. Dihubungi supplier; barang pengganti dikirim Senin"></textarea>'
+    +'<label>Foto bukti tahapan (opsional)</label><input type="file" id="mStepPhoto" accept="image/*">'
+    +'<img id="mStepPrev" class="photo-th hide" alt="preview">'
+    +'<div class="actions"><button class="btn ok" id="mStepSave">Simpan Tahapan</button><button class="btn sec" id="mStepNo">Batal</button></div>';
+  openModal(h);
+  $('mStepPhoto').addEventListener('change', async function(ev){
+    var f=ev.target.files&&ev.target.files[0]; if(!f) return;
+    try{ var du=await compressImage(f); $('mStepPhoto').dataset.b64=du; $('mStepPrev').src=du; $('mStepPrev').classList.remove('hide'); }
+    catch(e){ toast(e.message,'err'); }
+  });
+  $('mStepNo').addEventListener('click',function(){ openDetail(id); });
+  $('mStepSave').addEventListener('click', async function(){
+    var btn=$('mStepSave'); btn.disabled=true; btn.textContent='Menyimpan...';
+    var b64=$('mStepPhoto').dataset.b64||'';
+    try{
+      var out=await apiCall('addProblemAction',{
+        problem_id:id, stage_code:$('mStage').value,
+        notes:$('mNotes').value.trim(), photo_b64:b64
+      });
+      toast('Tahapan tersimpan: '+(out.stage_label||out.stage_code||'-'),'ok');
+      await refreshBootstrap(); openDetail(id);
+    }catch(e){
+      if(b64) delete $('mStepPhoto').dataset.b64;
+      if(String(e.message||'').indexOf('OFFLINE')===0){ toast('Laporan tahapan butuh koneksi internet.','err'); }
+      else toast(e.message,'err');
+      btn.disabled=false; btn.textContent='Simpan Tahapan';
+    }
   });
 }
 async function doProcess(id){

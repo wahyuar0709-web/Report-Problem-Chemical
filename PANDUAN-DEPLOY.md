@@ -1,4 +1,4 @@
-# 🧪 PANDUAN DEPLOY — Report Problem Chemical v1.3.0
+# 🧪 PANDUAN DEPLOY — Report Problem Chemical v1.4.0
 
 Aplikasi pelaporan masalah material kimia gudang RDI (kemasan rusak, tumpah, kadaluarsa, salah kirim, dll).
 
@@ -34,6 +34,7 @@ Yang dibuat/dipastikan oleh setup (aman dijalankan berulang):
 | Tab | Isi |
 |---|---|
 | `Problem Report` | header 22 kolom, kosong (data transaksi) |
+| `Problem Actions` | log tahapan penanganan per laporan + bukti foto tiap tahap (isi otomatis dijalankan) |
 | `Master Material` | 23 material dari file referensi (lem EVA/PVAc, UV coating, ink) |
 | `Master Problem Type` | 7 kategori default (bisa ditambah lewat Admin) |
 | `Master Supplier` | 2 supplier kimia dari data Flammable (Akzo Nobel, Sherwin-Williams) |
