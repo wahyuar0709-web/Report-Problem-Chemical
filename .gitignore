@@ -1,0 +1,7 @@
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+# lokal only
+node_modules/
+*.local
