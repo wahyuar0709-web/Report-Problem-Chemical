@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Problem Kimia">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>Report Problem Chemical</title>
 <link rel="manifest" href="./manifest.json">
 <style>
@@ -79,7 +84,7 @@ nav.tabs button{
   border-radius:10px;padding:7px 14px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap
 }
 nav.tabs button.on{background:var(--pri);color:#fff;font-weight:600}
-main{padding:14px 12px 90px; max-width:1100px;margin:0 auto}
+main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100px;margin:0 auto}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:14px}
 .panel h2{font-size:15px;margin:0 0 4px}
 .hint{color:var(--tx2);font-size:12px;margin:0 0 10px}
@@ -137,7 +142,7 @@ main{padding:14px 12px 90px; max-width:1100px;margin:0 auto}
 .modal .actions .btn{flex:1}
 .photo-th{width:100%;max-width:320px;border-radius:10px;border:1px solid var(--line);display:block;margin-top:4px}
 /* toast */
-.toast-wrap{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:99;display:flex;flex-direction:column;gap:8px;width:max-content;max-width:92vw}
+.toast-wrap{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:99;display:flex;flex-direction:column;gap:8px;width:max-content;max-width:92vw}
 .toast{background:#24304d;border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
 .toast.ok{border-color:var(--ok)} .toast.err{border-color:var(--bad)}
 /* form capture */
@@ -168,9 +173,9 @@ main{padding:14px 12px 90px; max-width:1100px;margin:0 auto}
       <input id="inUrl" placeholder="https://script.google.com/macros/s/....../exec">
     </details>
     <label>Username</label>
-    <input id="inUser" autocapitalize="none">
+    <input id="inUser" autocapitalize="none" autocomplete="username">
     <label>Password</label>
-    <input id="inPass" type="password">
+    <input id="inPass" type="password" autocomplete="current-password">
     <button class="btn" id="btnLogin" type="submit" style="width:100%;margin-top:14px">Masuk</button>
     <div class="err-msg hide" id="loginErr"></div>
   </form>
@@ -366,7 +371,7 @@ main{padding:14px 12px 90px; max-width:1100px;margin:0 auto}
   </main>
 </div>
 
-<div class="modal-bd hide" id="modalBd"><div class="modal" id="modalBox"></div></div>
+<div class="modal-bd hide" id="modalBd"><div class="modal" id="modalBox" role="dialog" aria-modal="true"></div></div>
 <div class="toast-wrap" id="toastWrap"></div>
 
 <script>
@@ -374,8 +379,8 @@ main{padding:14px 12px 90px; max-width:1100px;margin:0 auto}
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.1.0';
-var REQUEST_TIMEOUT_MS = 30000;
+var APP_VERSION = 'v1.2.0';
+var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
 var S = { token: null, me: null, list: [] };
@@ -475,8 +480,19 @@ function loadSession(){
 }
 
 /* ============ modal ============ */
-function openModal(html){ $('modalBox').innerHTML=html; show('modalBd'); }
-function closeModal(){ hide('modalBd'); $('modalBox').innerHTML=''; }
+function openModal(html){ $('modalBox').innerHTML=html; show('modalBd');
+  fixLabels(); document.body.style.overflow='hidden';
+  var f=$('modalBox').querySelector('input,textarea,select,button'); if(f) f.focus(); }
+function closeModal(){ hide('modalBd'); $('modalBox').innerHTML=''; document.body.style.overflow=''; }
+function fixLabels(){
+  document.querySelectorAll('label:not([for])').forEach(function(l){
+    var n=l.nextElementSibling;
+    if(n&&/^(INPUT|SELECT|TEXTAREA)$/.test(n.tagName)&&n.id) l.htmlFor=n.id;
+  });
+}
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'&&!$('modalBd').classList.contains('hide')) closeModal();
+});
 $('modalBd').addEventListener('click',function(e){ if(e.target===$('modalBd')) closeModal(); });
 
 /* ============ status chip ============ */
@@ -509,11 +525,14 @@ async function enterApp(){
   $('tabAdmin').classList.toggle('hide', !(S.me&&S.me.role==='ADMIN'));
   show('aboutVer'); $('aboutVer').textContent=APP_VERSION;
   await refreshBootstrap();
-  switchTab('lapor');
+  loadDraft();
+  var st=null; try{ st=sessionStorage.getItem('rpc_tab'); sessionStorage.removeItem('rpc_tab'); }catch(e){}
+  switchTab(st&&['lapor','input','dash','admin','akun'].indexOf(st)>-1?st:'lapor');
 }
 function logout(){
   apiRevoke(S.token);
   clearSession(); S.token=null; S.me=null; REF={materials:[],problem_types:[],suppliers:[],units:[]};
+  clearDraft();
   hide('appScreen'); show('loginScreen');
   $('inPass').value='';
 }
@@ -609,10 +628,42 @@ $('fPhoto').addEventListener('change', async function(){
     }
     $('fPhoto').dataset.b64=b64;
     $('fPhotoPrev').src=dataUrl; show('fPhotoPrev');
+    saveDraft();
   }catch(e){ toast(e.message,'err'); hide('fPhotoPrev'); delete $('fPhoto').dataset.b64; }
 });
 
+/* ============ draft laporan (hilang saat reload/crash = rugi shift) ============ */
+var DRAFT_KEY='rpc_draft', draftTimer=null;
+function saveDraft(){
+  try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({
+    material_code:$('fMat').value, supplier:$('fSup').value,
+    batch_number:$('fBatch').value, arrival_date:$('fArrival').value,
+    lokasi:$('fLoc').value, problem_category:$('fCat').value,
+    quantity:$('fQty').value, unit:$('fUnit').value,
+    description:$('fDesc').value, photo_b64:$('fPhoto').dataset.b64||''
+  })); }catch(e){}
+}
+function queueDraft(){ clearTimeout(draftTimer); draftTimer=setTimeout(saveDraft,250); }
+function loadDraft(){
+  try{
+    var d=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null'); if(!d) return;
+    $('fMat').value=d.material_code||''; $('fSup').value=d.supplier||'';
+    $('fBatch').value=d.batch_number||''; $('fArrival').value=d.arrival_date||'';
+    $('fLoc').value=d.lokasi||''; $('fCat').value=d.problem_category||'';
+    $('fQty').value=d.quantity||''; $('fUnit').value=d.unit||'';
+    $('fDesc').value=d.description||'';
+    if(d.photo_b64){ $('fPhoto').dataset.b64=d.photo_b64;
+      $('fPhotoPrev').src='data:image/jpeg;base64,'+d.photo_b64; show('fPhotoPrev'); }
+    if(d.material_code||d.description||d.batch_number||d.photo_b64){
+      toast('Draf laporan yang belum terkirim dipulihkan.','ok');
+    }
+  }catch(e){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e2){} }
+}
+function clearDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
+
 /* ============ input laporan ============ */
+['fMat','fSup','fBatch','fArrival','fLoc','fCat','fQty','fUnit','fDesc']
+  .forEach(function(id){ $(id).addEventListener('input',queueDraft); $(id).addEventListener('change',queueDraft); });
 $('btnSubmitProblem').addEventListener('click', async function(){
   var b=$('btnSubmitProblem');
   var mat=$('fMat').value, cat=$('fCat').value;
@@ -635,6 +686,7 @@ $('btnSubmitProblem').addEventListener('click', async function(){
     $('fBatch').value=''; $('fArrival').value=''; $('fLoc').value='';
     $('fQty').value=''; $('fUnit').value=''; $('fDesc').value='';
     delete $('fPhoto').dataset.b64; $('fPhoto').value=''; hide('fPhotoPrev');
+    clearDraft();
     await refreshBootstrap();
   }catch(e){ toast(e.message,'err'); }
   finally{ b.disabled=false; b.textContent='Kirim Laporan'; }
@@ -891,6 +943,7 @@ $('btnCsv').addEventListener('click',function(){
   rows.forEach(function(r){
     lines.push(cols.map(function(c){
       var v=r[CAMEL[c]]!=null?String(r[CAMEL[c]]):'';
+      if(/^[=+\-@\t]/.test(v)) v="'"+v;
       return '"'+v.replace(/"/g,'""')+'"';
     }).join(','));
   });
@@ -1092,6 +1145,8 @@ function updateOnline(){
   var on=navigator.onLine;
   $('connDot').classList.toggle('off',!on);
   $('offlineBar').classList.toggle('hide',on);
+  $('btnSubmitProblem').disabled=!on;
+  $('btnLogin').disabled=!on;
 }
 window.addEventListener('online',updateOnline);
 window.addEventListener('offline',updateOnline);
@@ -1117,6 +1172,10 @@ updateOnline();
 
 /* ============ boot ============ */
 (function boot(){
+  try{
+    var qtab=new URLSearchParams(location.search).get('tab');
+    if(qtab) sessionStorage.setItem('rpc_tab',qtab);
+  }catch(e){}
   var sess=loadSession();
   if(sess){
     S.token=sess.token; S.me={username:sess.username,nama:sess.nama,role:sess.role};

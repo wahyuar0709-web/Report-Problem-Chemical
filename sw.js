@@ -6,7 +6,7 @@
    manifest.json, atau ikon. Ini satu-satunya cara cache lama benar-
    benar dibuang. Selaraskan angka ini dengan APP_VERSION di index.html.
    ============================================================ */
-var CACHE_VERSION = 'v1.1.0';
+var CACHE_VERSION = 'v1.2.0';
 var CACHE_NAME = 'rpc-shell-' + CACHE_VERSION;
 
 // Hanya APP SHELL (asset statis) yang di-cache. JANGAN PERNAH masukkan
@@ -15,7 +15,10 @@ var CACHE_NAME = 'rpc-shell-' + CACHE_VERSION;
 var SHELL_ASSETS = [
   './',
   './index.html',
-  './manifest.json'
+  './manifest.json',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/maskable-512.png'
 ];
 
 self.addEventListener('install', function (event) {

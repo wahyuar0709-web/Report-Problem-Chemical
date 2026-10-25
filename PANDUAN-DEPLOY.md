@@ -1,4 +1,4 @@
-# 🧪 PANDUAN DEPLOY — Report Problem Chemical v1.0.0
+# 🧪 PANDUAN DEPLOY — Report Problem Chemical v1.2.0
 
 Aplikasi pelaporan masalah material kimia gudang RDI (kemasan rusak, tumpah, kadaluarsa, salah kirim, dll).
 
@@ -33,7 +33,7 @@ Yang dibuat/dipastikan oleh setup (aman dijalankan berulang):
 
 | Tab | Isi |
 |---|---|
-| `Problem Report` | header 21 kolom, kosong (data transaksi) |
+| `Problem Report` | header 22 kolom, kosong (data transaksi) |
 | `Master Material` | 23 material dari file referensi (lem EVA/PVAc, UV coating, ink) |
 | `Master Problem Type` | 7 kategori default (bisa ditambah lewat Admin) |
 | `Master Supplier` | 2 supplier kimia dari data Flammable (Akzo Nobel, Sherwin-Williams) |
@@ -51,13 +51,20 @@ Yang dibuat/dipastikan oleh setup (aman dijalankan berulang):
 
 ## 3️⃣ PASANG FRONTEND
 
-Pilih salah satu tempat menaruh `index.html`, `manifest.json`, `sw.js`, dan folder `icons/`:
+**Prodiksi = GitHub Pages (sudah aktif, HTTPS):**
+
+<https://wahyuar0709-web.github.io/Report-Problem-Chemical/>
+
+Setiap push ke branch `main` repo ini otomatis membangun ulang Pages (±1 menit).
 
 | Opsi | Cara | Cocok untuk |
 |---|---|---|
-| File lokal | buka `index.html` lewat Chrome | mulai cepat |
-| GitHub Pages | upload ke repo → Settings > Pages | akses link rapi |
-| Netlify Drop | drag-drop ke app.netlify.com/drop | link instan |
+| **GitHub Pages** ✅ | sudah jalan — cukup bagikan URL di atas | **operasi harian, install PWA** |
+| File lokal | buka `index.html` lewat Chrome | **dev/test saja** — SW/manifest tidak berjalan di `file://` |
+| Netlify Drop | drag-drop ke app.netlify.com/drop | cadangan |
+
+Pasang di HP (Chrome Android): buka URL Pages → menu ⋮ → *Install app / Add to Home screen*.
+iOS (Safari): tombol Share → *Add to Home Screen* — instruksinya manual karena iOS tidak mendukung prompt instalasi otomatis.
 
 Pemakaian pertama:
 1. Buka aplikasi → klik **URL Web App** → paste URL `/exec` — disimpan di localStorage, cukup sekali
@@ -93,7 +100,7 @@ Dashboard: total per status, tren 14 hari, per kategori, per material, unduh CSV
 | 5 | [Tutup] tanpa tindakan | ditolak; dengan tindakan → Selesai |
 | 6 | OPERATOR klik tab Admin | ditolak "Hanya ADMIN" |
 | 7 | Admin void laporan | status Void + alasan tercetak |
-| 8 | Matikan WiFi lalu kirim | muncul peringatan offline, tidak rusak |
+| 8 | Matikan WiFi lalu buka tab Input | tombol kirim mati + banner offline; isi form dapat disave — saat online, draft dipulihkan |
 | 9 | Cek tab `AuditLog` | semua aksi terekam |
 
 ## ⚠️ CATATAN KEAMANAN

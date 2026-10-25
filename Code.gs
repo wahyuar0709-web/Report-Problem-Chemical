@@ -59,7 +59,7 @@ var REPORT_HEADERS = [
   'Material_Code', 'Material_Name', 'Specification',
   'Supplier', 'Batch_Number', 'Arrival_Date', 'Location',
   'Problem_Category', 'Quantity', 'Unit', 'Description',
-  'Photo_URL', 'Reported_By',
+  'Photo_URL', 'Photo_URL_Extra', 'Reported_By',
   'Action_Taken', 'Action_PIC', 'Processed_At',
   'Closed_At', 'Closing_Note'
 ];
@@ -531,33 +531,9 @@ function readAllMasters_() {
 
 // ===================== ENTRY POINTS =====================
 
-function doGet(e) {
-  try {
-    var action = e.parameter.action;
-    var user = validateSession_(e.parameter.token);
-    var result;
-    switch (action) {
-      case 'bootstrap': result = bootstrapData_(); break;
-      case 'list': result = listProblems_(e.parameter.date_from, e.parameter.date_to, e.parameter.status, e.parameter.category, e.parameter.material, e.parameter.q); break;
-      case 'users':
-        requireRole_(user, [ROLES.ADMIN]);
-        result = readUserListPublic_();
-        break;
-      case 'masterAll':
-        requireRole_(user, [ROLES.ADMIN]);
-        result = readAllMasters_();
-        break;
-      case 'audit':
-        requireRole_(user, [ROLES.ADMIN]);
-        result = readRecentAudit_(parseInt(e.parameter.limit, 10) || 100);
-        break;
-      default:
-        return respondError_('Action tidak dikenal: ' + action);
-    }
-    return respondJson_({ ok: true, data: result, me: user });
-  } catch (err) {
-    return respondError_(err.message);
-  }
+function doGet() {
+  return ContentService.createTextOutput(
+    'Report Problem Chemical API. Halaman aplikasi: https://wahyuar0709-web.github.io/Report-Problem-Chemical/');
 }
 
 function doPost(e) {
