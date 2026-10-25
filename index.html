@@ -150,6 +150,8 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
 .modal .actions .btn{flex:1}
 .photo-th{display:block;width:auto;max-width:320px;height:auto;border-radius:10px;border:1px solid var(--line)}
 .foto-wrap{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
+.foto-item{margin:0;max-width:320px}
+.foto-item figcaption{font-size:10.5px;color:#94a3b8;margin-top:2px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tl{margin-top:6px;display:flex;flex-direction:column;gap:8px}
 .tl-item{border-left:2px solid var(--line);padding:2px 0 2px 10px}
 .tl-head{font-size:12px;color:var(--muted,#94a3b8);margin-bottom:3px}
@@ -394,7 +396,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.3';
+var APP_VERSION = 'v1.4.4';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -849,6 +851,17 @@ function fotoImgTag(u, alt){
   return '<a href="'+esc(u)+'" target="_blank" rel="noopener" title="Buka di Drive (unduh/ dokumen)">'
     +'<img class="photo-th" loading="lazy" src="'+esc(src)+'" alt="'+a+'"'+(fb?' data-fb="'+fb+'"':'')+' onerror="__fotoErr(this)"></a>';
 }
+/* foto + keterangan tahap (detail: foto digabung SATU bagian, ini dipakai foto laporan maupun foto tahapan) */
+function fotoItem(u, lab){
+  return '<figure class="foto-item">'+fotoImgTag(u)+(lab?'<figcaption>'+esc(lab)+'</figcaption>':'')+'</figure>';
+}
+function updateFotoLabel(){
+  var w=$('fotoWrap'), lb=$('fotoLabel');
+  if(!w||!lb) return;
+  var n=w.childElementCount;
+  if(n){ lb.style.display=''; lb.textContent='Foto/ Dokumen Bukti ('+n+')'; }
+  else { lb.style.display='none'; w.style.display='none'; }
+}
 function openDetail(id){
   var r=findRow(id); if(!r){ toast('Data tidak ditemukan (mungkin sudah diubah).','err'); return; }
   var h='<h3>'+esc(r.problem_id)+' '+chip(r.status)+'</h3>'
@@ -871,12 +884,10 @@ function openDetail(id){
     u=u.trim();
     if(u) fotoUtama.push(u);
   });
-  if(fotoUtama.length){
-    h+='<label style="margin-top:10px">'+(fotoUtama.length>1?'Foto/ Dokumen Bukti ('+fotoUtama.length+')':'Foto/ Dokumen Bukti')+'</label>'
-      +'<div class="foto-wrap">'
-      +fotoUtama.map(function(u){ return fotoImgTag(u); }).join('')
-      +'</div>';
-  }
+  h+='<label id="fotoLabel" style="margin-top:10px">Foto/ Dokumen Bukti'+(fotoUtama.length?(' ('+fotoUtama.length+')'):'')+'</label>'
+    +'<div id="fotoWrap" class="foto-wrap">'
+    +fotoUtama.map(function(u){ return fotoItem(u,''); }).join('')
+    +'</div>';
   h+='<div style="margin-top:12px"><label>Tahapan Penanganan</label><div id="tlBox" class="tl"><small style="color:#94a3b8">memuat tahapan&hellip;</small></div></div>';
   h+='<div class="actions">'
     +(r.status==='Baru'?'<button class="btn" data-a="process" data-id="'+esc(r.problem_id)+'">Proses</button>':'')
@@ -902,25 +913,36 @@ function openDetail(id){
 }
 async function loadTimeline(id, r){
   var box=$('tlBox'); if(!box) return;
+  var wrap=$('fotoWrap');
   try{
     var rows=await apiCall('listActions',{problem_id:id});
     if(!$('tlBox')||$('tlBox')!==box) return;
+    if(wrap&&(!$('fotoWrap')||$('fotoWrap')!==wrap)) return; // detail sudah diganti/ditutup
     if(!rows.length){
       box.innerHTML=(r&&r.action_taken)
         ?'<small style="color:#94a3b8">Riwayat tahapan belum tersedia untuk data migrasi &mdash; catatan penanganan lama ada di kolom Tindakan.</small>'
         :'<small style="color:#94a3b8">Belum ada tahapan tercatat.</small>';
+      updateFotoLabel();
       return;
     }
     box.innerHTML=rows.map(function(t){
-      var fase=t.photo_url?[String(t.photo_url)]:[];
-      (t.photo_url_extra||'').split(' | ').forEach(function(u){ u=u.trim(); if(u) fase.push(u); });
       return '<div class="tl-item">'
         +'<div class="tl-head"><span class="chip-stage">'+esc(t.stage_label||t.stage_code)+'</span>'
         +esc(fmtDate(t.action_at))+' &middot; '+esc(t.action_by||'-')+'</div>'
         +(t.notes?'<div class="tl-notes">'+linkify(t.notes)+'</div>':'')
-        +'<div class="foto-wrap">'+fase.map(function(u){ return fotoImgTag(u,'foto tahapan'); }).join('')+'</div>'
         +'</div>';
     }).join('');
+    // foto semua tahapan digabung ke SATU bagian Foto/ Dokumen Bukti (beri keterangan tahap)
+    if(wrap){
+      rows.forEach(function(t){
+        var lab=String(t.stage_label||t.stage_code||'');
+        if(t.photo_url) wrap.insertAdjacentHTML('beforeend', fotoItem(String(t.photo_url), lab));
+        String(t.photo_url_extra||'').split(' | ').forEach(function(u){
+          u=u.trim(); if(u) wrap.insertAdjacentHTML('beforeend', fotoItem(u, lab));
+        });
+      });
+    }
+    updateFotoLabel();
   }catch(e){
     if($('tlBox')) $('tlBox').innerHTML='<small style="color:#f87171">Gagal memuat tahapan: '+esc(e.message)+'</small>';
   }
