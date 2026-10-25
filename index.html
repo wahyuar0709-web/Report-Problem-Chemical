@@ -140,8 +140,16 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
 .modal .row .v{text-align:right;max-width:65%;white-space:pre-wrap;overflow-wrap:anywhere}
 .modal .row .v a{color:#7fb4ff}
 .modal .actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+/* desktop: modal lebar + baris informasi lebih lapang (kalau layar >= 820px) */
+@media (min-width:820px){
+  .modal{max-width:920px;padding:24px 28px}
+  .modal .row{font-size:14px;padding:8px 0}
+  .modal .row .v{max-width:72%}
+  .modal .actions .btn{min-width:150px}
+}
 .modal .actions .btn{flex:1}
-.photo-th{width:100%;max-width:320px;border-radius:10px;border:1px solid var(--line);display:block;margin-top:4px}
+.photo-th{display:block;width:auto;max-width:320px;height:auto;border-radius:10px;border:1px solid var(--line)}
+.foto-wrap{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
 .tl{margin-top:6px;display:flex;flex-direction:column;gap:8px}
 .tl-item{border-left:2px solid var(--line);padding:2px 0 2px 10px}
 .tl-head{font-size:12px;color:var(--muted,#94a3b8);margin-bottom:3px}
@@ -386,7 +394,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.1';
+var APP_VERSION = 'v1.4.2';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -819,6 +827,28 @@ function linkify(v){
     return '<a href="'+m+'" target="_blank" rel="noopener">'+t+'</a>';
   });
 }
+/* ===== foto: ekstrak ID Drive = URL CDN + fallback (bukti: 4 bentuk URL anonim 200 image/jpeg; browser ber-cookie Google tanpa akses bisa gagal di uc/thumbnail) ===== */
+function driveId(u){
+  var s=String(u||'');
+  var m=s.match(/\/file\/d\/([A-Za-z0-9_-]{20,})/)||s.match(/[?&]id=([A-Za-z0-9_-]{20,})/)||s.match(/\/d\/([A-Za-z0-9_-]{20,})/);
+  return m?m[1]:'';
+}
+function driveThumb(u){
+  var id=driveId(u);
+  return id?('https://lh3.googleusercontent.com/d/'+id+'=w800'):String(u||'');
+}
+window.__fotoErr=function(img){
+  if(img.dataset.fb && !img.dataset.f){ img.dataset.f='1'; img.src=img.dataset.fb; }
+  else { img.style.display='none'; if(img.parentNode) img.parentNode.style.display='inline-block'; }
+};
+function fotoImgTag(u, alt){
+  var id=driveId(u);
+  var src=driveThumb(u);
+  var a=alt||'foto bukti';
+  var fb=id?('https://drive.google.com/thumbnail?id='+esc(id)+'&sz=w800'):'';
+  return '<a href="'+esc(u)+'" target="_blank" rel="noopener" title="Buka di Drive (unduh/ dokumen)">'
+    +'<img class="photo-th" loading="lazy" src="'+esc(src)+'" alt="'+a+'"'+(fb?' data-fb="'+fb+'"':'')+' onerror="__fotoErr(this)"></a>';
+}
 function openDetail(id){
   var r=findRow(id); if(!r){ toast('Data tidak ditemukan (mungkin sudah diubah).','err'); return; }
   var h='<h3>'+esc(r.problem_id)+' '+chip(r.status)+'</h3>'
@@ -843,10 +873,9 @@ function openDetail(id){
   });
   if(fotoUtama.length){
     h+='<label style="margin-top:10px">'+(fotoUtama.length>1?'Foto/ Dokumen Bukti ('+fotoUtama.length+')':'Foto/ Dokumen Bukti')+'</label>'
-      +fotoUtama.map(function(u){
-        var ap='<a href="'+u+'" target="_blank" rel="noopener" style="display:inline-block" title="Buka di Drive (unduh/ dokumen)"><img class="photo-th" src="'+u+'" alt="foto bukti"></a>';
-        return ap;
-      }).join('');
+      +'<div class="foto-wrap">'
+      +fotoUtama.map(function(u){ return fotoImgTag(u); }).join('')
+      +'</div>';
   }
   h+='<div style="margin-top:12px"><label>Tahapan Penanganan</label><div id="tlBox" class="tl"><small style="color:#94a3b8">memuat tahapan&hellip;</small></div></div>';
   h+='<div class="actions">'
@@ -883,13 +912,13 @@ async function loadTimeline(id, r){
       return;
     }
     box.innerHTML=rows.map(function(t){
-      var fase=t.photo_url?[esc(t.photo_url)]:[];
-      (t.photo_url_extra||'').split(' | ').forEach(function(u){ u=u.trim(); if(u) fase.push(esc(u)); });
+      var fase=t.photo_url?[String(t.photo_url)]:[];
+      (t.photo_url_extra||'').split(' | ').forEach(function(u){ u=u.trim(); if(u) fase.push(u); });
       return '<div class="tl-item">'
         +'<div class="tl-head"><span class="chip-stage">'+esc(t.stage_label||t.stage_code)+'</span>'
         +esc(fmtDate(t.action_at))+' &middot; '+esc(t.action_by||'-')+'</div>'
         +(t.notes?'<div class="tl-notes">'+linkify(t.notes)+'</div>':'')
-        +fase.map(function(u){ return '<a href="'+u+'" target="_blank" rel="noopener" style="display:inline-block"><img class="photo-th" src="'+u+'" alt="foto tahapan"></a>'; }).join('')
+        +'<div class="foto-wrap">'+fase.map(function(u){ return fotoImgTag(u,'foto tahapan'); }).join('')+'</div>'
         +'</div>';
     }).join('');
   }catch(e){
