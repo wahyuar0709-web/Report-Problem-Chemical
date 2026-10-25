@@ -394,7 +394,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.2';
+var APP_VERSION = 'v1.4.3';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -866,10 +866,10 @@ function openDetail(id){
     +'<div class="row"><span class="k">Ditutup</span><span class="v">'+(r.closed_at?fmtDate(r.closed_at):'-')+'</span></div>'
     +(r.action_taken?'<div class="row"><span class="k">Tindakan</span><span class="v">'+linkify(r.action_taken)+'</span></div>':'')
     +(r.closing_note?'<div class="row"><span class="k">Catatan penutupan</span><span class="v">'+linkify(r.closing_note)+'</span></div>':'');
-  var fotoUtama=r.photo_url?[esc(r.photo_url)]:[];
+  var fotoUtama=r.photo_url?[String(r.photo_url)]:[];
   (r.photo_url_extra||'').split(' | ').forEach(function(u){
     u=u.trim();
-    if(u) fotoUtama.push(esc(u));
+    if(u) fotoUtama.push(u);
   });
   if(fotoUtama.length){
     h+='<label style="margin-top:10px">'+(fotoUtama.length>1?'Foto/ Dokumen Bukti ('+fotoUtama.length+')':'Foto/ Dokumen Bukti')+'</label>'
