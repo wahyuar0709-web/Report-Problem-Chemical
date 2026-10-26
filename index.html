@@ -152,6 +152,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
 .foto-wrap{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
 .foto-item{margin:0;max-width:320px}
 .foto-item figcaption{font-size:10.5px;color:#94a3b8;margin-top:2px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl-item .photo-th{max-width:240px}
 .tl{margin-top:6px;display:flex;flex-direction:column;gap:10px;padding-left:18px}
 .tl-item{position:relative;border:1px solid var(--line);background:rgba(30,41,59,.45);border-radius:12px;padding:10px 12px}
 .tl-item::before{content:'';position:absolute;left:-14px;top:16px;width:8px;height:8px;border-radius:50%;background:#60a5fa;box-shadow:0 0 0 3px rgba(96,165,250,.18)}
@@ -402,7 +403,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.9';
+var APP_VERSION = 'v1.4.10';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -981,22 +982,16 @@ async function loadTimeline(id, r){
       return;
     }
     box.innerHTML=rows.map(function(t){
+      var fase=[];
+      if(t.photo_url) fase.push(String(t.photo_url));
+      String(t.photo_url_extra||'').split(' | ').forEach(function(u){ u=u.trim(); if(u) fase.push(u); });
       return '<div class="tl-item">'
         +'<div class="tl-head"><span class="chip-stage">'+esc(t.stage_label||t.stage_code)+'</span>'
         +'<span class="when">'+esc(fmtDate(t.action_at))+'</span><span class="who">'+esc(t.action_by||'-')+'</span></div>'
         +(t.notes?'<div class="tl-notes">'+linkify(t.notes)+'</div>':'')
+        +(fase.length?'<div class="foto-wrap">'+fase.map(function(u){ return fotoItem(u); }).join('')+'</div>':'')
         +'</div>';
     }).join('');
-    // foto semua tahapan digabung ke SATU bagian Foto/ Dokumen Bukti (beri keterangan tahap)
-    if(wrap){
-      rows.forEach(function(t){
-        var lab=String(t.stage_label||t.stage_code||'');
-        if(t.photo_url) wrap.insertAdjacentHTML('beforeend', fotoItem(String(t.photo_url), lab));
-        String(t.photo_url_extra||'').split(' | ').forEach(function(u){
-          u=u.trim(); if(u) wrap.insertAdjacentHTML('beforeend', fotoItem(u, lab));
-        });
-      });
-    }
     updateFotoLabel();
   }catch(e){
     if($('tlBox')) $('tlBox').innerHTML='<small style="color:#f87171">Gagal memuat tahapan: '+esc(e.message)+'</small>';
