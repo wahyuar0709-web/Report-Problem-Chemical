@@ -152,11 +152,16 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
 .foto-wrap{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
 .foto-item{margin:0;max-width:320px}
 .foto-item figcaption{font-size:10.5px;color:#94a3b8;margin-top:2px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tl{margin-top:6px;display:flex;flex-direction:column;gap:8px}
-.tl-item{border-left:2px solid var(--line);padding:2px 0 2px 10px}
-.tl-head{font-size:12px;color:var(--muted,#94a3b8);margin-bottom:3px}
-.chip-stage{display:inline-block;background:#1d2a44;border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:11px;color:#dbe7ff;margin-right:6px}
-.tl-notes{font-size:13px;white-space:pre-wrap;margin-bottom:4px}
+.tl{margin-top:6px;display:flex;flex-direction:column;gap:10px;padding-left:18px}
+.tl-item{position:relative;border:1px solid var(--line);background:rgba(30,41,59,.45);border-radius:12px;padding:10px 12px}
+.tl-item::before{content:'';position:absolute;left:-14px;top:16px;width:8px;height:8px;border-radius:50%;background:#60a5fa;box-shadow:0 0 0 3px rgba(96,165,250,.18)}
+.tl-item:not(:last-child)::after{content:'';position:absolute;left:-11px;top:30px;bottom:-12px;width:2px;background:rgba(96,165,250,.22)}
+.tl-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:#94a3b8;margin-bottom:4px}
+.tl-head .when{color:var(--tx3,#8197b3);font-size:12px}
+.tl-head .who{color:var(--tx2);font-size:12px}
+.chip-stage{display:inline-block;background:#1d2a44;border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:11px;color:#dbe7ff}
+.tl-notes{font-size:13.5px;line-height:1.55;color:var(--tx);white-space:pre-line;border-top:1px dashed rgba(96,116,158,.35);padding-top:6px}
+.tl-notes:empty{display:none}
 /* toast */
 .toast-wrap{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:99;display:flex;flex-direction:column;gap:8px;width:max-content;max-width:92vw}
 .toast{background:#24304d;border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
@@ -397,7 +402,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.8';
+var APP_VERSION = 'v1.4.9';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -928,9 +933,7 @@ function openDetail(id){
     +'<div class="row"><span class="k">Pelapor</span><span class="v">'+esc(r.reported_by||'-')+'</span></div>'
     +'<div class="row"><span class="k">Waktu Lapor</span><span class="v">'+fmtDate(r.timestamp)+'</span></div>'
     +'<div class="row"><span class="k">Diproses</span><span class="v">'+(r.processed_at?fmtDate(r.processed_at)+' — '+esc(r.action_pic||''):'-')+'</span></div>'
-    +'<div class="row"><span class="k">Ditutup</span><span class="v">'+(r.closed_at?fmtDate(r.closed_at):'-')+'</span></div>'
-    +(r.action_taken?'<div class="row"><span class="k">Tindakan</span><span class="v">'+linkify(r.action_taken)+'</span></div>':'')
-    +(r.closing_note?'<div class="row"><span class="k">Catatan penutupan</span><span class="v">'+linkify(r.closing_note)+'</span></div>':'');
+    +'<div class="row"><span class="k">Ditutup</span><span class="v">'+(r.closed_at?fmtDate(r.closed_at):'-')+'</span></div>';
   var fotoUtama=r.photo_url?[String(r.photo_url)]:[];
   (r.photo_url_extra||'').split(' | ').forEach(function(u){
     u=u.trim();
@@ -980,7 +983,7 @@ async function loadTimeline(id, r){
     box.innerHTML=rows.map(function(t){
       return '<div class="tl-item">'
         +'<div class="tl-head"><span class="chip-stage">'+esc(t.stage_label||t.stage_code)+'</span>'
-        +esc(fmtDate(t.action_at))+' &middot; '+esc(t.action_by||'-')+'</div>'
+        +'<span class="when">'+esc(fmtDate(t.action_at))+'</span><span class="who">'+esc(t.action_by||'-')+'</span></div>'
         +(t.notes?'<div class="tl-notes">'+linkify(t.notes)+'</div>':'')
         +'</div>';
     }).join('');
@@ -1004,18 +1007,18 @@ function migrasiTimelineHtml(r){
   var items=[];
   var re=/^(20\d{2}-\d{2}-\d{2})\s*:\s*(.*)$/;
   items.push('<div class="tl-item"><div class="tl-head"><span class="chip-stage">Diterima</span>'
-    +esc(fmtDate(r.timestamp))+' &middot; '+esc(r.reported_by||'Migrasi')+'</div>'
+    +'<span class="when">'+esc(fmtDate(r.timestamp))+'</span><span class="who">'+esc(r.reported_by||'Migrasi')+'</span></div>'
     +'<div class="tl-notes">Laporan masuk (data migrasi).</div></div>');
   String(r.action_taken||'').split(/\n+/).forEach(function(ln){
     ln=ln.trim(); if(!ln) return;
     var m=ln.match(re);
     items.push('<div class="tl-item"><div class="tl-head"><span class="chip-stage cat">Migrasi</span>'
-      +(m?esc(m[1])+' &middot; ':'')+'Migrasi</div>'
+      +(m?'<span class="when">'+esc(m[1])+'</span>':'')+'<span class="who">Migrasi</span></div>'
       +'<div class="tl-notes">'+linkify(m?(m[2]||'') : ln)+'</div></div>');
   });
   if(r.closing_note){
     items.push('<div class="tl-item"><div class="tl-head"><span class="chip-stage">Penutupan</span>'
-      +(r.closed_at?esc(fmtDate(r.closed_at))+' &middot; ':'')+'Migrasi</div>'
+      +(r.closed_at?'<span class="when">'+esc(fmtDate(r.closed_at))+'</span>':'')+'<span class="who">Migrasi</span></div>'
       +'<div class="tl-notes">'+linkify(r.closing_note)+'</div></div>');
   }
   items.push('<small style="color:#94a3b8">Direkonstruksi dari data migrasi (kolom Tindakan).</small>');
