@@ -6,7 +6,7 @@
    manifest.json, atau ikon. Ini satu-satunya cara cache lama benar-
    benar dibuang. Selaraskan angka ini dengan APP_VERSION di index.html.
    ============================================================ */
-var CACHE_VERSION = 'v1.4.10';
+var CACHE_VERSION = 'v1.4.11';
 var CACHE_NAME = 'rpc-shell-' + CACHE_VERSION;
 
 // Hanya APP SHELL (asset statis) yang di-cache. JANGAN PERNAH masukkan
