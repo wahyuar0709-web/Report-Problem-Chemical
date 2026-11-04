@@ -275,7 +275,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
             <option>Baru</option><option>Diproses</option><option>Selesai</option><option>Void</option>
           </select>
           <select id="lfCat"><option value="">Semua Kategori</option></select>
-          <input id="lfQ" placeholder="Cari material / ID / supplier...">
+          <input id="lfQ" type="search" name="rpc_cari_laporan" placeholder="Cari material / ID / supplier..." autocomplete="off" autocapitalize="none" spellcheck="false" readonly data-lpignore="true" data-1p-ignore data-form-type="other">
           <button class="btn sec small" id="btnLapFilter" type="button">Cari</button>
           <button class="btn sec small" id="btnLapReset" type="button">Reset</button>
         </div>
@@ -441,7 +441,7 @@ main{padding:14px 12px calc(84px + env(safe-area-inset-bottom)); max-width:1100p
    REPORT PROBLEM CHEMICAL - FRONTEND v1.0.0
    Naikkan CACHE_VERSION di sw.js setiap mengubah file ini.
    ============================================================ */
-var APP_VERSION = 'v1.4.11';
+var APP_VERSION = 'v1.4.14';
 var REQUEST_TIMEOUT_MS = 80000;
 
 var LS = { URL: 'rpc_url', SESS: 'rpc_sess' };
@@ -584,6 +584,7 @@ $('loginForm').addEventListener('submit', async function(e){
 function openUrlBoxNeedSetup(){ $('urlBox').open=true; }
 
 async function enterApp(){
+  LFQ_TOUCHED=false; $('lfQ').value='';
   hide('loginScreen'); show('appScreen');
   $('aboutMe').textContent=(S.me? S.me.nama+' ('+S.me.role+')':'-');
   $('tabAdmin').classList.toggle('hide', !(S.me&&S.me.role==='ADMIN'));
@@ -608,7 +609,7 @@ function logout(){
   clearSession(); S.token=null; S.me=null; REF={materials:[],problem_types:[],suppliers:[],units:[]};
   clearDraft();
   hide('appScreen'); show('loginScreen');
-  $('inPass').value='';
+  $('inPass').value=''; LFQ_TOUCHED=false; $('lfQ').value='';
 }
 
 /* ============ bootstrap ============ */
@@ -821,10 +822,18 @@ $('queueBar').addEventListener('click',function(){ flushQueue().catch(function(e
 /* ============ list laporan ============ */
 var LF={};
 var LIST_SEQ=0;
+var LFQ_TOUCHED=false; // true hanya jika user sendiri mengetik di kolom cari
+(function(){ var q=$('lfQ');
+  function touch(){ q.removeAttribute('readonly'); LFQ_TOUCHED=true; }
+  q.addEventListener('focus',function(){ q.removeAttribute('readonly'); });
+  q.addEventListener('keydown',touch); q.addEventListener('paste',touch);
+  q.addEventListener('keyup',function(e){ if(e.key==='Enter') $('btnLapFilter').click(); });
+})();
 async function refreshList(){
   var my=++LIST_SEQ;
   LF={ date_from:$('lfFrom').value, date_to:$('lfTo').value,
-       status:$('lfStatus').value, category:$('lfCat').value, q:$('lfQ').value.trim() };
+       status:$('lfStatus').value, category:$('lfCat').value, q:(LFQ_TOUCHED?$('lfQ').value.trim():'') };
+  if(!LFQ_TOUCHED) $('lfQ').value=''; // buang isian otomatis browser (mis. username)
   try{
     var fresh=await apiCall('list',LF);
     if(my!==LIST_SEQ) return; // respons basi dari filter lama - buang
@@ -857,7 +866,7 @@ function retryList(){
 }
 $('btnLapFilter').addEventListener('click',function(){ refreshList().catch(function(e){ toast(e.message,'err'); }); });
 $('btnLapReset').addEventListener('click',function(){
-  $('lfFrom').value=''; $('lfTo').value=''; $('lfStatus').value=''; $('lfCat').value=''; $('lfQ').value='';
+  $('lfFrom').value=''; $('lfTo').value=''; $('lfStatus').value=''; $('lfCat').value=''; $('lfQ').value=''; LFQ_TOUCHED=false;
   refreshList().catch(function(e){ toast(e.message,'err'); });
 });
 $('btnRefresh').addEventListener('click',function(){
@@ -876,12 +885,30 @@ function rowsMobileHtml(rows){
       +'</div>';
   }).join('')||'<div class="hint">Belum ada data.</div>';
 }
+var SORT={key:'',dir:1};
+var SORT_COLS=[['problem_id','ID'],['status','Status'],['material_code','Material_Code'],['material_name','Material'],['problem_category','Kategori'],['quantity','Qty'],['supplier','Supplier'],['timestamp','Waktu'],['reported_by','Pelapor']];
+function sortedRows(rows){
+  if(!SORT.key) return rows;
+  var k=SORT.key, d=SORT.dir;
+  return rows.slice().sort(function(a,b){
+    var x=a[k], y=b[k];
+    if(x==null||x==='') return 1; if(y==null||y==='') return -1;
+    var nx=parseFloat(x), ny=parseFloat(y);
+    if(k==='quantity'&&!isNaN(nx)&&!isNaN(ny)) return (nx-ny)*d;
+    return String(x).localeCompare(String(y),'id',{numeric:true,sensitivity:'base'})*d;
+  });
+}
 function rowsTableHtml(rows){
-  var h='<thead><tr><th>ID</th><th>Status</th><th>Material</th><th>Kategori</th><th>Qty</th><th>Supplier</th><th>Waktu</th><th>Pelapor</th></tr></thead><tbody>';
-  rows.forEach(function(r){
+  var h='<thead><tr>'+SORT_COLS.map(function(c){
+    var on=SORT.key===c[0];
+    return '<th class="sortable" data-sort="'+c[0]+'" style="cursor:pointer" aria-sort="'+(on?(SORT.dir>0?'ascending':'descending'):'none')+'">'
+      +c[1]+(on?(SORT.dir>0?' \u25B2':' \u25BC'):'')+'</th>';
+  }).join('')+'</tr></thead><tbody>';
+  sortedRows(rows).forEach(function(r){
     h+='<tr class="click" data-id="'+esc(r.problem_id)+'">'
       +'<td>'+esc(r.problem_id)+'</td><td>'+chip(r.status)+'</td>'
-      +'<td>'+esc(r.material_name||r.material_code)+'</td>'
+      +'<td>'+esc(r.material_code||'-')+'</td>'
+      +'<td>'+esc(r.material_name||'-')+'</td>'
       +'<td>'+esc(r.problem_category)+'</td>'
       +'<td>'+(r.quantity!=null?esc(r.quantity)+' '+esc(r.unit||''):'-')+'</td>'
       +'<td>'+esc(r.supplier||'-')+'</td><td>'+fmtDate(r.timestamp)+'</td>'
@@ -904,7 +931,13 @@ function renderLaporan(){
     return;
   }
   $('lapTbl').innerHTML=rows.length?rowsTableHtml(rows):'<tbody><tr><td>Belum ada data.</td></tr></tbody>';
-  $('lapList').innerHTML=rowsMobileHtml(rows);
+  $('lapTbl').querySelectorAll('th[data-sort]').forEach(function(th){
+    th.addEventListener('click',function(){
+      var k=th.dataset.sort; if(SORT.key===k) SORT.dir=-SORT.dir; else { SORT.key=k; SORT.dir=1; }
+      renderLaporan();
+    });
+  });
+  $('lapList').innerHTML=rowsMobileHtml(sortedRows(rows));
   bindRowClick($('lapTbl')); bindRowClick($('lapList'));
 }
 function bindRowClick(node){
